@@ -12,6 +12,6 @@ import { ElectricityAvailabilityService } from './electricity-availability.servi
     ElectricityAvailabilityService,
 //    KyivElectricstatusScheduleService,
   ],
-  exports: [ElectricityAvailabilityService, KyivElectricstatusScheduleService],
+  exports: [ElectricityAvailabilityService]//, KyivElectricstatusScheduleService],
 })
 export class ElectricityAvailabilityModule {}
