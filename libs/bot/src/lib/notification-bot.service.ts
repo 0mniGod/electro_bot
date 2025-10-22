@@ -888,6 +888,9 @@ export class NotificationBotService {
 
       const placeBots = await this.placeRepository.getAllPlaceBots();
 
+      this.logger.log(`Loaded ${places.length} places from DB.`);
+      this.logger.log(`Loaded ${placeBots.length} bots configurations from DB.`);
+            
       placeBots.forEach((bot) => {
         if (!bot.isEnabled) {
           // !This will only skip bot on first creation, but will not disable already created bot
