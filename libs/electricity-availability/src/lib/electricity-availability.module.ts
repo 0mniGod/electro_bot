@@ -2,11 +2,12 @@
 import { Module } from '@nestjs/common';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
 import { HttpModule } from '@nestjs/axios';
-// KyivElectricstatusScheduleService та ScheduleModule видалені
+import { ElectricityRepository } from './electricity.repository'; // <-- Додаємо імпорт
 
 @Module({
-  imports: [HttpModule], // ScheduleModule.forRoot() видалено
-  providers: [ElectricityAvailabilityService], // KyivElectricstatusScheduleService видалено звідси
+  imports: [HttpModule],
+  // Додаємо ElectricityRepository до списку providers:
+  providers: [ElectricityAvailabilityService, ElectricityRepository],
   exports: [ElectricityAvailabilityService],
 })
 export class ElectricityAvailabilityModule {}
