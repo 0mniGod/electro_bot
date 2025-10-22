@@ -1,13 +1,13 @@
-// ----- ВСТАВТЕ ЦЕЙ КОД -----
+// ----- ФІНАЛЬНИЙ КОД (ВСТАВТЕ ЦЕЙ КОД) -----
 import { Module } from '@nestjs/common';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
 import { HttpModule } from '@nestjs/axios';
-import { ElectricityRepository } from './electricity.repository'; // <-- Повертаємо відносний імпорт
+// Використовуємо бібліотечний шлях, оскільки ми щойно експортували репозиторій:
+import { ElectricityRepository } from '@electrobot/electricity-availability';
 
 @Module({
   imports: [HttpModule],
-  // Вказуємо, що і сервіс, і репозиторій є частиною цього модуля:
   providers: [ElectricityAvailabilityService, ElectricityRepository],
-  exports: [ElectricityAvailabilityService], // Експортуємо тільки сервіс (репозиторій - внутрішня деталь)
+  exports: [ElectricityAvailabilityService],
 })
 export class ElectricityAvailabilityModule {}
