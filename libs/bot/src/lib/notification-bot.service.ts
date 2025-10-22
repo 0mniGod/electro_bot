@@ -1,6 +1,6 @@
 import {
   ElectricityAvailabilityService,
-  KyivElectricstatusScheduleService,
+//  KyivElectricstatusScheduleService,
 } from '@electrobot/electricity-availability';
 import { UserRepository } from '@electrobot/user-repo';
 import { Injectable, Logger } from '@nestjs/common';
@@ -60,7 +60,7 @@ export class NotificationBotService {
 
   constructor(
     private readonly electricityAvailabilityService: ElectricityAvailabilityService,
-    private readonly kyivElectricstatusScheduleService: KyivElectricstatusScheduleService,
+//    private readonly kyivElectricstatusScheduleService: KyivElectricstatusScheduleService,
     private readonly userRepository: UserRepository,
     private readonly placeRepository: PlaceRepository
   ) {
@@ -190,18 +190,18 @@ export class NotificationBotService {
     let schedulePossibleDisableMoment: Date | undefined;
 
     if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) {
-      if (latest.isAvailable) {
-        const scheduleData =
-          await this.kyivElectricstatusScheduleService.getNextDisableMoment({
-            scheduleGroupId: place.kyivScheduleGroupId,
+      //if (latest.isAvailable) {
+      //  const scheduleData =
+      //    await this.kyivElectricstatusScheduleService.getNextDisableMoment({
+      //      scheduleGroupId: place.kyivScheduleGroupId,
           });
 
         scheduleDisableMoment = scheduleData?.disableMoment;
         schedulePossibleDisableMoment = scheduleData?.possibleDisableMoment;
       } else {
-        const scheduleData =
-          await this.kyivElectricstatusScheduleService.getNextEnableMoment({
-            scheduleGroupId: place.kyivScheduleGroupId,
+        //const scheduleData =
+        //  await this.kyivElectricstatusScheduleService.getNextEnableMoment({
+        //    scheduleGroupId: place.kyivScheduleGroupId,
           });
 
         scheduleEnableMoment = scheduleData?.enableMoment;
@@ -667,17 +667,17 @@ export class NotificationBotService {
 
     if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) {
       if (latest.isAvailable) {
-        const scheduleData =
-          await this.kyivElectricstatusScheduleService.getNextDisableMoment({
-            scheduleGroupId: place.kyivScheduleGroupId,
+        //const scheduleData =
+        //  await this.kyivElectricstatusScheduleService.getNextDisableMoment({
+        //    scheduleGroupId: place.kyivScheduleGroupId,
           });
 
         scheduleDisableMoment = scheduleData?.disableMoment;
         schedulePossibleDisableMoment = scheduleData?.possibleDisableMoment;
       } else {
-        const scheduleData =
-          await this.kyivElectricstatusScheduleService.getNextEnableMoment({
-            scheduleGroupId: place.kyivScheduleGroupId,
+       // const scheduleData =
+       //   await this.kyivElectricstatusScheduleService.getNextEnableMoment({
+       //     scheduleGroupId: place.kyivScheduleGroupId,
           });
 
         scheduleEnableMoment = scheduleData?.enableMoment;
