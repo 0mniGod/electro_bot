@@ -1,6 +1,6 @@
 import {
   ElectricityAvailabilityService,
-  KyivElectricstatusScheduleService,
+  // KyivElectricstatusScheduleService, // Закоментовано імпорт
 } from '@electrobot/electricity-availability';
 import { UserRepository } from '@electrobot/user-repo';
 import { Injectable, Logger } from '@nestjs/common';
@@ -60,7 +60,7 @@ export class NotificationBotService {
 
   constructor(
     private readonly electricityAvailabilityService: ElectricityAvailabilityService,
-    private readonly kyivElectricstatusScheduleService: KyivElectricstatusScheduleService,
+    // private readonly kyivElectricstatusScheduleService: KyivElectricstatusScheduleService, // Закоментовано ін'єкцію залежності
     private readonly userRepository: UserRepository,
     private readonly placeRepository: PlaceRepository
   ) {
@@ -184,11 +184,14 @@ export class NotificationBotService {
       includeSeconds: false,
     });
 
+    // Оголошуємо змінні, але не присвоюємо їм значення з scheduleService
     let scheduleEnableMoment: Date | undefined;
     let schedulePossibleEnableMoment: Date | undefined;
     let scheduleDisableMoment: Date | undefined;
     let schedulePossibleDisableMoment: Date | undefined;
 
+    // --- Початок закоментованого блоку ---
+    /*
     if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) {
       if (latest.isAvailable) {
         const scheduleData =
@@ -208,6 +211,8 @@ export class NotificationBotService {
         schedulePossibleEnableMoment = scheduleData?.possibleEnableMoment;
       }
     }
+    */
+    // --- Кінець закоментованого блоку ---
 
     const response = latest.isAvailable
       ? RESP_CURRENTLY_AVAILABLE({
@@ -660,11 +665,14 @@ export class NotificationBotService {
       return;
     }
 
+    // Оголошуємо змінні, але не присвоюємо їм значення з scheduleService
     let scheduleEnableMoment: Date | undefined;
     let schedulePossibleEnableMoment: Date | undefined;
     let scheduleDisableMoment: Date | undefined;
     let schedulePossibleDisableMoment: Date | undefined;
 
+    // --- Початок закоментованого блоку ---
+    /*
     if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) {
       if (latest.isAvailable) {
         const scheduleData =
@@ -684,6 +692,8 @@ export class NotificationBotService {
         schedulePossibleEnableMoment = scheduleData?.possibleEnableMoment;
       }
     }
+    */
+    // --- Кінець закоментованого блоку ---
 
     const latestTime = convertToTimeZone(latest.time, {
       timeZone: place.timezone,
