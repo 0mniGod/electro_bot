@@ -929,7 +929,7 @@ export class NotificationBotService {
     readonly bot: Bot;
   }): void {
     const { place, bot } = params;
-    const telegramBot = new TelegramBot(bot.token, { polling: true });
+//    const telegramBot = new TelegramBot(bot.token, { polling: true });
 
     this.placeBots[bot.placeId] = {
       bot,
