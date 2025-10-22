@@ -1,7 +1,7 @@
 import { BotModule } from '@electrobot/bot';
 import { ElectricityAvailabilityModule } from '@electrobot/electricity-availability';
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
+//import { ScheduleModule } from '@nestjs/schedule';
 import { KnexModule } from 'nestjs-knex';
 import { CronService } from './cron.service';
 
@@ -9,7 +9,7 @@ import { CronService } from './cron.service';
   imports: [
     ElectricityAvailabilityModule,
     BotModule,
-    ScheduleModule.forRoot(),
+//    ScheduleModule.forRoot(),
     KnexModule.forRoot({
       config: {
         client: 'pg',
