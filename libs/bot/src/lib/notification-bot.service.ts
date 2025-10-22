@@ -933,13 +933,16 @@ export class NotificationBotService {
   }): void {
     const { place, bot } = params;
 //    const telegramBot = new TelegramBot(bot.token, { polling: true });
+this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token.substring(0, 10)}...`);
     const telegramBot = new TelegramBot(bot.token);
 
     this.placeBots[bot.placeId] = {
       bot,
       telegramBot,
     };
-
+    
+this.logger.log(`Successfully created and stored bot instance for place ${place.id}. Total instances: ${Object.keys(this.placeBots).length}`);
+    
     telegramBot.on('polling_error', (error) => {
       this.logger.error(`${place.name}/${bot.botName} polling error: ${error}`);
     });
@@ -1015,7 +1018,8 @@ export class NotificationBotService {
   }
 
   public getMainTelegramBotInstance(): TelegramBot | undefined {
-  const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
+this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
+    const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
   if (activeBotEntry) {
     return activeBotEntry.telegramBot;
   } else {
