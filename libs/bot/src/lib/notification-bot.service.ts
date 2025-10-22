@@ -190,7 +190,7 @@ export class NotificationBotService {
     let schedulePossibleDisableMoment: Date | undefined;
 
     if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) {
-      //if (latest.isAvailable) {
+      if (latest.isAvailable) {
       //  const scheduleData =
       //    await this.kyivElectricstatusScheduleService.getNextDisableMoment({
       //      scheduleGroupId: place.kyivScheduleGroupId,
