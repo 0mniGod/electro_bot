@@ -1,21 +1,22 @@
-// ----- ЦЕЙ КОД "ПІСЛЯ" (ВСТАВТЕ ЦЕ) -----
+// ----- КОД "ПІСЛЯ" (ВСТАВТЕ ЦЕЙ КОД) -----
 import { BotModule } from '@electrobot/bot';
 import { ElectricityAvailabilityModule } from '@electrobot/electricity-availability';
 import { Module } from '@nestjs/common';
+// ScheduleModule видалено
 import { KnexModule } from 'nestjs-knex';
 import { CronService } from './cron.service';
-// KyivElectricScheduleModule ТА ScheduleModule ВИДАЛЕНІ - ВОНИ БУЛИ ЗЛАМАНІ
+// KyivElectricScheduleModule видалено
 
 @Module({
   imports: [
     ElectricityAvailabilityModule, // Це модуль, який пінгує ваш IP
     BotModule,
-    // KyivElectricScheduleModule ТА ScheduleModule ВИДАЛЕНІ
+    // ScheduleModule.forRoot() видалено
+    // KyivElectricScheduleModule видалено
     KnexModule.forRoot({
       config: {
         client: 'pg',
-        // Ми замінили старий об'єкт connection на цей рядок:
-        connection: process.env.DATABASE_URL,
+        connection: process.env.DATABASE_URL, // Цей рядок правильний
       },
     }),
   ],
