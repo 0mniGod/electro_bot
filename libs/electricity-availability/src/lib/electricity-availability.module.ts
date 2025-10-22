@@ -1,17 +1,12 @@
-import { ElectricityRepoModule } from '@electrobot/electricity-repo';
-import { PlaceRepoModule } from '@electrobot/place-repo';
+// ----- КОД "ПІСЛЯ" (ВСТАВТЕ ЦЕЙ КОД) -----
 import { Module } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
-import { KyivElectricstatusScheduleService } from './kyiv-electricstatus-schedule.service';
+import { HttpModule } from '@nestjs/axios';
+// KyivElectricstatusScheduleService та ScheduleModule видалені
 
 @Module({
-  imports: [HttpModule, ElectricityRepoModule, PlaceRepoModule],
-  controllers: [],
-  providers: [
-    ElectricityAvailabilityService,
-    KyivElectricstatusScheduleService,
-  ],
-  exports: [ElectricityAvailabilityService, KyivElectricstatusScheduleService],
+  imports: [HttpModule], // ScheduleModule.forRoot() видалено
+  providers: [ElectricityAvailabilityService], // KyivElectricstatusScheduleService видалено звідси
+  exports: [ElectricityAvailabilityService],
 })
 export class ElectricityAvailabilityModule {}
