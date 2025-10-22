@@ -2,7 +2,7 @@
 import { Module } from '@nestjs/common';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
 import { HttpModule } from '@nestjs/axios';
-import { ElectricityRepository } from './electricity.repository'; // <-- Додаємо імпорт
+import { ElectricityRepository } from '@electrobot/electricity-availability';
 
 @Module({
   imports: [HttpModule],
