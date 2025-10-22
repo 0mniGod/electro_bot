@@ -1,13 +1,13 @@
-// ----- КОД "ПІСЛЯ" (ВСТАВТЕ ЦЕЙ КОД) -----
+// ----- ВСТАВТЕ ЦЕЙ КОД -----
 import { Module } from '@nestjs/common';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
 import { HttpModule } from '@nestjs/axios';
-import { ElectricityRepository } from '@electrobot/electricity-availability';
+import { ElectricityRepository } from './electricity.repository'; // <-- Повертаємо відносний імпорт
 
 @Module({
   imports: [HttpModule],
-  // Додаємо ElectricityRepository до списку providers:
+  // Вказуємо, що і сервіс, і репозиторій є частиною цього модуля:
   providers: [ElectricityAvailabilityService, ElectricityRepository],
-  exports: [ElectricityAvailabilityService],
+  exports: [ElectricityAvailabilityService], // Експортуємо тільки сервіс (репозиторій - внутрішня деталь)
 })
 export class ElectricityAvailabilityModule {}
