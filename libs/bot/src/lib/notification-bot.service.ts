@@ -1010,4 +1010,14 @@ export class NotificationBotService {
   private async sleep(params: { readonly ms: number }): Promise<void> {
     return new Promise((r) => setTimeout(r, params.ms));
   }
+
+  public getMainTelegramBotInstance(): TelegramBot | undefined {
+  const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
+  if (activeBotEntry) {
+    return activeBotEntry.telegramBot;
+  } else {
+    this.logger.warn('No active bot instance found in getMainTelegramBotInstance');
+    return undefined;
+  }
+}
 }
