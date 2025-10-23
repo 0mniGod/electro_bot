@@ -2,20 +2,19 @@ import { Place } from '@electrobot/domain';
 import { PlaceRepository } from '@electrobot/place-repo';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
-// ВІДНОВЛЮЄМО ІМПОРТИ
-import { Cron, CronExpression } from '@nestjs/schedule'; 
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   addHours,
-  addMinutes, // <-- ВІДНОВЛЕНО
+  addMinutes,
   addMonths,
   differenceInMinutes,
   eachDayOfInterval,
   endOfDay,
   endOfMonth,
   format,
-  formatDistance, // <-- ВІДНОВЛЕНО
+  formatDistance,
   getDay,
-  getMonth, // <-- ВІДНОВЛЕНО
+  getMonth,
   startOfDay,
   startOfMonth,
   subMinutes,
@@ -30,9 +29,8 @@ import {
   switchMap,
 } from 'rxjs/operators';
 import { HistoryItem } from './history-item.type';
-// ВИПРАВЛЯЄМО ІМПОРТ РЕПОЗИТОРІЮ
-import { ElectricityRepository } from './electricity.repository'; 
-import * as net from 'net'; 
+import { ElectricityRepository } from './electricity.repository';
+import * as net from 'net';
 
 const CHECK_INTERVAL_IN_MINUTES = 2; // Частота перевірки Cron
 
@@ -44,13 +42,13 @@ export class ElectricityAvailabilityService {
   private readonly place$ = new Subject<Place>();
   private readonly forceCheck$ = new Subject<Place>();
 
-public readonly availabilityChange$ = zip(
-  this.place$,
-  timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // <-- ПОВЕРНУЛИ ЧИСЛО
-).pipe(
+  public readonly availabilityChange$ = zip(
+    this.place$,
+    timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // Повертаємо числовий інтервал
+  ).pipe(
     map(([place]) => place),
-    filter((place) => place && !place.isDisabled), // Додано перевірку на place
-    switchMap((place) => this.check(place)),
+    filter((place) => place && !place.isDisabled),
+    switchMap((place) => this.checkWithRetries(place)), // <-- ЗМІНЕНО: викликаємо checkWithRetries
     distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
     map(({ place, isAvailable }) => {
       this.handleAvailabilityChange({ place, isAvailable });
@@ -61,7 +59,7 @@ public readonly availabilityChange$ = zip(
   constructor(
     private readonly electricityRepository: ElectricityRepository,
     private readonly placeRepository: PlaceRepository,
-    private readonly httpService: HttpService // <-- Додаємо HttpService
+    private readonly httpService: HttpService
   ) {
     this.availabilityChange$.subscribe(
         (data) => {
@@ -73,60 +71,90 @@ public readonly availabilityChange$ = zip(
     );
   }
 
-  // --- ПЕРЕПИСАНИЙ МЕТОД CHECK ---
+  // --- НОВИЙ ДОПОМІЖНИЙ МЕТОД ---
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ ---
+  private async checkWithRetries(place: Place): Promise<{
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }> {
+    const retries = 3; // Кількість спроб
+    const delay = 5000; // 5 секунд між спробами
+
+    for (let i = 1; i <= retries; i++) {
+      this.logger.verbose(`Check attempt ${i}/${retries} for ${place.host}`);
+      const { isAvailable } = await this.check(place);
+      
+      if (isAvailable) {
+        // Успіх з першої (або не першої) спроби
+        return { place, isAvailable: true };
+      }
+      
+      // Якщо невдача, але це ще не остання спроба, чекаємо
+      if (i < retries) {
+        this.logger.warn(`Check attempt ${i} failed. Retrying in ${delay / 1000}s...`);
+        await this.sleep(delay);
+      }
+    }
+
+    // Якщо всі 3 спроби не вдалися
+    this.logger.warn(`All ${retries} check attempts failed for ${place.host}. Reporting as UNAVAILABLE.`);
+    return { place, isAvailable: false };
+  }
+  // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
+
+
+  // --- ОНОВЛЕНИЙ МЕТОД CHECK (тепер він просто робить одну перевірку) ---
   private async check(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean;
   }> {
     const host = place.host;
-    const port = 80; // Використовуємо порт 80, який у вас відкритий
-    // Використовуємо check-host.net
+    const port = 80; 
     const url = `https://check-host.net/check-tcp?host=${host}&port=${port}&max_nodes=1&json=true`;
 
-    this.logger.verbose(`Starting TCP check for ${host}:${port} via API (${url})...`);
+    this.logger.verbose(`Starting single TCP check for ${host}:${port} via API (${url})...`);
     let isAvailable = false; 
 
     try {
         const response = await firstValueFrom(
             this.httpService.get(url, { 
-                timeout: 10000, // Тайм-аут 10 секунд
-                headers: { 'User-Agent': 'Koyeb Electro Bot Check' } // Додаємо User-Agent
+                timeout: 10000, 
+                headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
             })
         );
         
-        // check-host.net повертає JSON. Якщо 'ok' = 1, запит пройшов.
         if (response.data && response.data.ok === 1) {
-            // Отримуємо перший результат з вузла
             const nodes = response.data.nodes;
             const firstNodeResult = nodes[Object.keys(nodes)[0]];
-            // Якщо результат [0] не null і містить 'time' - порт відкритий
             if (firstNodeResult && firstNodeResult[0] && firstNodeResult[0].time) {
                 isAvailable = true;
-                this.logger.debug(`TCP check successful for ${host}:${port}. API response: ${JSON.stringify(firstNodeResult[0])}`);
+                this.logger.debug(`Single TCP check successful for ${host}:${port}.`);
             } else {
                 isAvailable = false;
-                this.logger.warn(`TCP check failed (API reported failure) for ${host}:${port}. Response: ${JSON.stringify(firstNodeResult)}`);
+                this.logger.warn(`Single TCP check failed (API reported failure) for ${host}:${port}.`);
             }
         } else {
              isAvailable = false;
-             this.logger.error(`TCP check via API failed. Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
+             this.logger.error(`Single TCP check via API failed. Status: ${response.status}.`);
         }
     } catch (error: any) {
         isAvailable = false;
-        // Логуємо помилку, тільки якщо це не тайм-аут (щоб не спамити, коли світла немає)
         if (error.code !== 'ECONNABORTED' && (!error.response || error.response.status !== 504)) {
-             this.logger.error(`TCP check via API failed (HTTP Error) for ${host}:${port}. Error: ${error.message}`);
+             this.logger.error(`Single TCP check via API failed (HTTP Error) for ${host}:${port}. Error: ${error.message}`);
         } else {
-             this.logger.warn(`TCP check via API timed out for ${host}:${port}. Assuming unavailable.`);
+             this.logger.warn(`Single TCP check via API timed out for ${host}:${port}.`);
         }
     }
-
-    return { place, isAvailable };
+    // Повертаємо лише результат, а не { place, isAvailable }
+    // Виправлення: повертаємо об'єкт, як і очікує checkWithRetries
+    return { place, isAvailable }; 
   }
-  // --- КІНЕЦЬ ПЕРЕПИСАНОГО МЕТОДУ ---
+  // --- КІНЕЦЬ ОНОВЛЕНОГО МЕТОДУ CHECK ---
 
-  // --- ЦЕ МЕТОД, ЯКИЙ ВИКЛИКАЄ CRONSERVICE ---
-  // Ми використовуємо CronExpression.EVERY_MINUTE
   @Cron(CronExpression.EVERY_MINUTE, { 
     name: 'check-electricity-availability',
   })
@@ -136,7 +164,7 @@ public readonly availabilityChange$ = zip(
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
       places.forEach((place) => {
-        if (place && !place.isDisabled) { // Додано перевірку на place
+        if (place && !place.isDisabled) { 
             this.logger.debug(`Cron: Pushing place ${place.name} to check queue.`);
             this.place$.next(place);
         } else if (place) {
@@ -147,9 +175,7 @@ public readonly availabilityChange$ = zip(
        this.logger.error(`Cron: Failed to load places: ${error}`, error instanceof Error ? error.stack : undefined);
     }
   }
-  // ---------------------------------------------
 
-  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   private async handleAvailabilityChange(params: {
     readonly place: Place;
     readonly isAvailable: boolean;
@@ -162,6 +188,7 @@ public readonly availabilityChange$ = zip(
     this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
     try {
         const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+        // Виправлено: is_available
         if (!latest || latest.is_available !== isAvailable) {
           this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
           await this.electricityRepository.save({ placeId: place.id, isAvailable });
@@ -173,20 +200,18 @@ public readonly availabilityChange$ = zip(
     }
   }
 
-  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
-public async getLatestPlaceAvailability(params: {
-  readonly placeId: string;
-  readonly limit: number;
-  readonly to?: Date;
-}): Promise<
-  ReadonlyArray<{
-    readonly time: Date;
-    readonly is_available: boolean; // <-- ВИПРАВЛЕНО
-  }>
-> {
+  public async getLatestPlaceAvailability(params: {
+    readonly placeId: string;
+    readonly limit: number;
+    readonly to?: Date;
+  }): Promise<
+    ReadonlyArray<{
+      readonly time: Date;
+      readonly is_available: boolean; // Виправлено
+    }>
+  > {
     this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
     try {
-        // Переконуємось, що передаємо 'to' якщо він є
         return await this.electricityRepository.getLatest({
             placeId: params.placeId,
             limit: params.limit,
@@ -194,11 +219,9 @@ public async getLatestPlaceAvailability(params: {
         });
     } catch (error) {
         this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
-        return []; // Повертаємо порожній масив у разі помилки
+        return []; 
     }
   }
-
-  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getTodayAndYesterdayStats(params: {
     readonly place: Place;
   }): Promise<{
