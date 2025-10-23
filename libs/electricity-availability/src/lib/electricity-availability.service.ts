@@ -108,51 +108,58 @@ export class ElectricityAvailabilityService {
 
 
   // --- ОНОВЛЕНИЙ МЕТОД CHECK (тепер він просто робить одну перевірку) ---
-  private async check(place: Place): Promise<{
-    readonly place: Place;
-    readonly isAvailable: boolean;
-  }> {
-    const host = place.host;
-    const port = 80; 
-    const url = `https://check-host.net/check-tcp?host=${host}&port=${port}&node=de.fra&json=true`;
+private async check(place: Place): Promise<{
+  readonly place: Place;
+  readonly isAvailable: boolean;
+}> {
+  const host = place.host;
+  // Використовуємо check-host.net API для PING
+  const url = `https://check-host.net/check-ping?host=${host}&node=de.fra&json=true`; // <-- Змінено на check-ping та вузол de.fra
 
-    this.logger.verbose(`Starting single TCP check for ${host}:${port} via API (${url})...`);
-    let isAvailable = false; 
+  this.logger.verbose(`Starting PING check for ${host} via API (${url})...`);
+  let isAvailable = false; 
 
-    try {
-        const response = await firstValueFrom(
-            this.httpService.get(url, { 
-                timeout: 10000, 
-                headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
-            })
-        );
-        
-        if (response.data && response.data.ok === 1) {
-            const nodes = response.data.nodes;
-            const firstNodeResult = nodes[Object.keys(nodes)[0]];
-            if (firstNodeResult && firstNodeResult[0] && firstNodeResult[0].time) {
-                isAvailable = true;
-                this.logger.debug(`Single TCP check successful for ${host}:${port}.`);
-            } else {
-                isAvailable = false;
-                this.logger.warn(`Single TCP check failed (API reported failure) for ${host}:${port}.`);
-            }
-        } else {
-             isAvailable = false;
-             this.logger.error(`Single TCP check via API failed. Status: ${response.status}.`);
-        }
-    } catch (error: any) {
-        isAvailable = false;
-        if (error.code !== 'ECONNABORTED' && (!error.response || error.response.status !== 504)) {
-             this.logger.error(`Single TCP check via API failed (HTTP Error) for ${host}:${port}. Error: ${error.message}`);
-        } else {
-             this.logger.warn(`Single TCP check via API timed out for ${host}:${port}.`);
-        }
-    }
-    // Повертаємо лише результат, а не { place, isAvailable }
-    // Виправлення: повертаємо об'єкт, як і очікує checkWithRetries
-    return { place, isAvailable }; 
+  try {
+      const response = await firstValueFrom(
+          this.httpService.get(url, { 
+              timeout: 10000, // Тайм-аут 10 секунд
+              headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
+          })
+      );
+
+      // check-host.net повертає JSON. Якщо 'ok' = 1, запит пройшов.
+      if (response.data && response.data.ok === 1) {
+          // Отримуємо перший результат з вузла
+          const nodes = response.data.nodes;
+          const nodeName = Object.keys(nodes)[0]; // Назва вузла, напр. "de.fra.check-host.net"
+          const nodeResult = nodes[nodeName];
+
+          // Перевіряємо, що результат - це масив і перший елемент [0] не null
+          // Успішний PING повертає ["OK", час, IP, ...]
+          if (nodeResult && Array.isArray(nodeResult) && nodeResult[0] && nodeResult[0][0] === 'OK') {
+              isAvailable = true;
+              this.logger.debug(`PING check successful for ${host}. API response: ${JSON.stringify(nodeResult[0])}`);
+          } else {
+              // ПІНГ не пройшов (напр. ["TIMEOUT"] або null)
+              isAvailable = false;
+              this.logger.warn(`PING check failed (API reported failure) for ${host}. Response: ${JSON.stringify(nodeResult)}`);
+          }
+      } else {
+           isAvailable = false;
+           this.logger.error(`PING check via API failed (API returned error). Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
+      }
+  } catch (error: any) {
+      isAvailable = false;
+      // Логуємо помилку, тільки якщо це не тайм-аут (щоб не спамити, коли світла немає)
+      if (error.code !== 'ECONNABORTED' && (!error.response || error.response.status !== 504)) {
+           this.logger.error(`PING check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+      } else {
+           this.logger.warn(`PING check via API timed out for ${host}. Assuming unavailable.`);
+      }
   }
+
+  return { place, isAvailable };
+}
   // --- КІНЕЦЬ ОНОВЛЕНОГО МЕТОДУ CHECK ---
 
   @Cron(CronExpression.EVERY_MINUTE, { 
