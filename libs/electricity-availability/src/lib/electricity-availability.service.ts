@@ -114,7 +114,7 @@ export class ElectricityAvailabilityService {
   }> {
     const host = place.host;
     const port = 80; 
-    const url = `https://check-host.net/check-tcp?host=${host}&port=${port}&max_nodes=1&json=true`;
+    const url = `https://check-host.net/check-tcp?host=${host}&port=${port}&node=de.fra&json=true`;
 
     this.logger.verbose(`Starting single TCP check for ${host}:${port} via API (${url})...`);
     let isAvailable = false; 
