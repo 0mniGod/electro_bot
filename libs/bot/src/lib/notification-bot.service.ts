@@ -6,7 +6,7 @@ import { UserRepository } from '@electrobot/user-repo';
 // Додаємо OnModuleInit до імпортів з @nestjs/common
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
-  addMinutes, 
+  addMinutes,
   addMonths,
   differenceInMinutes,
   format,
@@ -73,9 +73,13 @@ export class NotificationBotService implements OnModuleInit {
     this.electricityAvailabilityService.availabilityChange$.subscribe(
       ({ placeId }) => {
         this.logger.log(`Received availability change event for placeId: ${placeId}`);
-        this.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({
-          placeId,
-        });
+        try { // Додано try-catch для безпеки
+          this.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({
+            placeId,
+          });
+        } catch (error) {
+           this.logger.error(`Error handling availabilityChange$ for place ${placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
+        }
       }
     );
     this.logger.log('>>> Constructor finished'); // Лог завершення конструктора
@@ -93,7 +97,9 @@ export class NotificationBotService implements OnModuleInit {
       if (!(global as any).botRefreshInterval) {
          (global as any).botRefreshInterval = setInterval(() => {
              this.logger.log('>>> Interval triggered: calling refreshAllPlacesAndBots()'); // Лог виклику з інтервалу
-             this.refreshAllPlacesAndBots();
+             this.refreshAllPlacesAndBots().catch(err => { // Додано catch для помилок в інтервалі
+                 this.logger.error(`Error during scheduled refreshAllPlacesAndBots: ${err}`, err instanceof Error ? err.stack : undefined);
+             });
          }, refreshRate);
          this.logger.log(`Periodic refresh scheduled every ${refreshRate / 1000 / 60} minutes.`);
       } else {
@@ -110,14 +116,14 @@ export class NotificationBotService implements OnModuleInit {
     const allPlaces = Object.values(this.places);
     this.logger.log(`Starting notifyAllPlacesAboutPreviousMonthStats for ${allPlaces.length} places.`); // Лог
     for (const place of allPlaces) {
-      if (place.isDisabled || place.disableMonthlyStats) {
-        this.logger.verbose(`Skipping monthly notification for ${place.name} (isDisabled: ${place.isDisabled}, disableMonthlyStats: ${place.disableMonthlyStats})`);
+      if (!place || place.isDisabled || place.disableMonthlyStats) { // Додано перевірку на place
+        this.logger.verbose(`Skipping monthly notification for ${place?.name || 'unknown place'} (isDisabled: ${place?.isDisabled}, disableMonthlyStats: ${place?.disableMonthlyStats})`);
         continue;
       }
       try { // Додано try...catch
         await this.notifyAllPlaceSubscribersAboutPreviousMonthStats({ place });
       } catch (error) {
-        this.logger.error(`Error sending monthly stats for place ${place.id}: ${error}`); // Лог помилки
+        this.logger.error(`Error sending monthly stats for place ${place?.id || 'unknown id'}: ${error}`); // Лог помилки
       }
     }
     this.logger.log(`Finished notifyAllPlacesAboutPreviousMonthStats.`); // Лог
@@ -130,6 +136,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { msg, place, telegramBot } = params;
+    // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleStartCommand');
+        return;
+    }
     this.logger.log(`Handling /start command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
       this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
@@ -165,7 +176,12 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { msg, place, telegramBot } = params;
-     this.logger.log(`Handling /current command for chat ${msg.chat.id} in place ${place.id}`); // Лог
+    // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleCurrentCommand');
+        return;
+    }
+    this.logger.log(`Handling /current command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
       this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
       return;
@@ -222,7 +238,7 @@ export class NotificationBotService implements OnModuleInit {
               when,
               howLong,
               place: place.name,
-              scheduleDisableMoment, // Буде undefined, бо блок вище закоментовано
+              scheduleDisableMoment, // Буде undefined
               schedulePossibleDisableMoment, // Буде undefined
             })
           : RESP_CURRENTLY_UNAVAILABLE({
@@ -248,6 +264,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { msg, place, telegramBot } = params;
+    // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleSubscribeCommand');
+        return;
+    }
     this.logger.log(`Handling /subscribe command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
       this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
@@ -287,6 +308,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { msg, place, telegramBot } = params;
+     // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleUnsubscribeCommand');
+        return;
+    }
     this.logger.log(`Handling /unsubscribe command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
        this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
@@ -323,6 +349,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
       const { msg, place, telegramBot } = params;
+      // Додаємо перевірку на null/undefined
+      if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleStatsCommand');
+        return;
+      }
       this.logger.log(`Handling /stats command for chat ${msg.chat.id} in place ${place.id}`); // Лог
       if (this.isGroup({ chatId: msg.chat.id })) {
          this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
@@ -342,20 +373,27 @@ export class NotificationBotService implements OnModuleInit {
           const stats = await this.electricityAvailabilityService.getTodayAndYesterdayStats({
             place,
           });
+          // Перевірка на null/undefined для stats
+          if (!stats || !stats.history) {
+              this.logger.error(`Failed to get stats data for place ${place.id}`);
+              await telegramBot.sendMessage(msg.chat.id, 'Помилка отримання статистики.', { parse_mode: 'HTML' });
+              return;
+          }
           this.logger.log(`Stats data for place ${place.id}: ${JSON.stringify(stats)}`); // Лог статистики
 
           let response = '';
 
+          // Вчорашня статистика
           if (
-            (!!stats.history.yesterday?.length &&
-              stats.history.yesterday?.length > 1) ||
+            (stats.history.yesterday && // Додано перевірку
+              stats.history.yesterday.length > 1) ||
             stats.lastStateBeforeYesterday !== undefined
           ) {
             response += `${EMOJ_KISS} Вчора:`;
 
             if (
-              !!stats.history.yesterday?.length &&
-              stats.history.yesterday?.length > 1
+              stats.history.yesterday && // Додано перевірку
+              stats.history.yesterday.length > 1
             ) {
               const yesterday = stats.history.yesterday;
 
@@ -364,6 +402,8 @@ export class NotificationBotService implements OnModuleInit {
               let baseDatePluesUnavailable = new Date();
 
               yesterday.forEach(({ start, end, isEnabled }, i) => {
+                 // Додаємо перевірку на start/end
+                 if (!start || !end) return;
                 const s =
                   i === 0
                     ? convertToTimeZone(start, { timeZone: place.timezone })
@@ -372,8 +412,15 @@ export class NotificationBotService implements OnModuleInit {
                   i === yesterday.length - 1
                     ? convertToTimeZone(end, { timeZone: place.timezone })
                     : end;
-                // Виправлено: різниця має бути між end та start
-                const durationInMinutes = Math.abs(differenceInMinutes(e, s));
+                // Виправлено: різниця має бути між end та start, і обережно з типами
+                let durationInMinutes = 0;
+                try {
+                   durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
+                } catch (diffError) {
+                   this.logger.error(`Error calculating differenceInMinutes for yesterday stats: ${diffError}`);
+                   return; // Пропускаємо цей запис, якщо дати невалідні
+                }
+
 
                 if (isEnabled) {
                   baseDatePlusAvailable = addMinutes(
@@ -391,27 +438,23 @@ export class NotificationBotService implements OnModuleInit {
               const howLongAvailable = formatDistance(
                 baseDate, // Змінено порядок аргументів для коректного відображення
                 baseDatePlusAvailable,
-                {
-                  locale: uk,
-                  includeSeconds: false,
-                }
+                { locale: uk, includeSeconds: false }
               );
               const howLongUnavailable = formatDistance(
                 baseDate, // Змінено порядок аргументів
                 baseDatePluesUnavailable,
-                {
-                  locale: uk,
-                  includeSeconds: false,
-                }
+                { locale: uk, includeSeconds: false }
               );
 
               response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
 
               yesterday.forEach(({ start, end, isEnabled }, i) => {
+                 // Додаємо перевірку на start/end
+                 if (!start || !end) return;
                 const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
-                const s = format(start, 'HH:mm', { locale: uk });
-                const e = format(end, 'HH:mm', { locale: uk });
-                const duration = formatDistance(end, start, {
+                const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
+                const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
+                const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
                   locale: uk,
                   includeSeconds: false,
                 });
@@ -431,17 +474,18 @@ export class NotificationBotService implements OnModuleInit {
             }
           }
 
+          // Сьогоднішня статистика
           if (
-            (!!stats.history.today?.length && stats.history.today?.length > 1) ||
+            (stats.history.today && // Додано перевірку
+             stats.history.today.length > 1) ||
             stats.lastStateBeforeToday !== undefined
           ) {
             if (response.length > 0) {
               response += '\n\n';
             }
-
             response += `${EMOJ_KISS_HEART} Сьогодні:`;
 
-            if (!!stats.history.today?.length && stats.history.today?.length > 1) {
+            if (stats.history.today && stats.history.today.length > 1) { // Додано перевірку
               const today = stats.history.today;
 
               const baseDate = new Date();
@@ -449,6 +493,8 @@ export class NotificationBotService implements OnModuleInit {
               let baseDatePluesUnavailable = new Date();
 
               today.forEach(({ start, end, isEnabled }, i) => {
+                 // Додаємо перевірку на start/end
+                 if (!start || !end) return;
                 const s =
                   i === 0
                     ? convertToTimeZone(start, { timeZone: place.timezone })
@@ -457,8 +503,14 @@ export class NotificationBotService implements OnModuleInit {
                   i === today.length - 1
                     ? convertToTimeZone(end, { timeZone: place.timezone })
                     : end;
-                // Виправлено: різниця має бути між end та start
-                const durationInMinutes = Math.abs(differenceInMinutes(e, s));
+                 // Виправлено: різниця має бути між end та start, і обережно з типами
+                let durationInMinutes = 0;
+                 try {
+                   durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
+                 } catch (diffError) {
+                   this.logger.error(`Error calculating differenceInMinutes for today stats: ${diffError}`);
+                   return; // Пропускаємо цей запис
+                 }
 
                 if (isEnabled) {
                   baseDatePlusAvailable = addMinutes(
@@ -476,27 +528,23 @@ export class NotificationBotService implements OnModuleInit {
               const howLongAvailable = formatDistance(
                 baseDate, // Змінено порядок аргументів
                 baseDatePlusAvailable,
-                {
-                  locale: uk,
-                  includeSeconds: false,
-                }
+                { locale: uk, includeSeconds: false }
               );
               const howLongUnavailable = formatDistance(
                 baseDate, // Змінено порядок аргументів
                 baseDatePluesUnavailable,
-                {
-                  locale: uk,
-                  includeSeconds: false,
-                }
+                { locale: uk, includeSeconds: false }
               );
 
               response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
 
               today.forEach(({ start, end, isEnabled }, i) => {
+                 // Додаємо перевірку на start/end
+                 if (!start || !end) return;
                 const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
-                const s = format(start, 'HH:mm', { locale: uk });
-                const e = format(end, 'HH:mm', { locale: uk });
-                const duration = formatDistance(end, start, {
+                const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
+                const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
+                const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
                   locale: uk,
                   includeSeconds: false,
                 });
@@ -603,6 +651,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
       const { msg, place, telegramBot } = params;
+      // Додаємо перевірку на null/undefined
+      if (!msg || !place || !telegramBot) {
+        this.logger.error('Missing parameters in handleAboutCommand');
+        return;
+      }
       this.logger.log(`Handling /about command for chat ${msg.chat.id} in place ${place.id}`); // Лог
       if (this.isGroup({ chatId: msg.chat.id })) {
          this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
@@ -738,7 +791,12 @@ export class NotificationBotService implements OnModuleInit {
       // --- ДОДАНО ЛОГУВАННЯ ---
       this.logger.log(`Prepared notification message for place ${placeId}: "${response.substring(0, 50)}..."`);
       // -----------------------
-      this.notifyAllPlaceSubscribers({ place, msg: response });
+      // Переконуємось, що place існує перед викликом
+      if (place) {
+          this.notifyAllPlaceSubscribers({ place, msg: response });
+      } else {
+          this.logger.error(`Place object was null/undefined before calling notifyAllPlaceSubscribers for placeId ${placeId}`);
+      }
     } catch (error) {
       this.logger.error(`Error in notifyAllPlaceSubscribersAboutElectricityAvailabilityChange for place ${placeId}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
     }
@@ -748,6 +806,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly place: Place;
   }): Promise<void> {
     const { place } = params;
+    // Додаємо перевірку на null/undefined
+    if (!place) {
+        this.logger.error('Missing place parameter in notifyAllPlaceSubscribersAboutPreviousMonthStats');
+        return;
+    }
     this.logger.log(`Starting notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}`); // Лог
     if (place.isDisabled) {
       this.logger.log(`Place ${place.id} is disabled, skipping monthly stats.`); // Лог
@@ -777,6 +840,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly msg: string;
   }): Promise<void> {
     const { place, msg } = params;
+    // Додаємо перевірку на null/undefined
+    if (!place || !msg) {
+        this.logger.error('Missing parameters in notifyAllPlaceSubscribers');
+        return;
+    }
     this.logger.log(`Starting notifyAllPlaceSubscribers for place ${place.id}`); // Лог
     const botEntry = this.placeBots[place.id];
     if (!botEntry) {
@@ -784,6 +852,11 @@ export class NotificationBotService implements OnModuleInit {
         `No bot instance found in cache for ${place.name} during notifyAllPlaceSubscribers` // Уточнено лог
       );
       return;
+    }
+    // Додаємо перевірку на botEntry.bot
+    if (!botEntry.bot) {
+       this.logger.error(`Corrupted botEntry found for place ${place.id} - missing 'bot' property.`);
+       return;
     }
     if (!botEntry.bot.isEnabled) {
       this.logger.log(
@@ -810,6 +883,12 @@ export class NotificationBotService implements OnModuleInit {
       const chatId = Number(subscriber.chatId);
       if (isNaN(chatId)) {
           this.logger.error(`Invalid chatId found for place ${place.id}: ${subscriber.chatId}`);
+          continue;
+      }
+      // Переконуємось, що є екземпляр telegramBot
+      if (!botEntry.telegramBot) {
+          this.logger.error(`Missing telegramBot instance in botEntry for place ${place.id} while notifying chat ${chatId}`);
+          errorCount++;
           continue;
       }
 
@@ -841,7 +920,6 @@ export class NotificationBotService implements OnModuleInit {
       `Finished notifying subscribers of ${place.name}. Success: ${successCount}, Blocked: ${blockedCount}, Errors: ${errorCount}` // Додано статистику
     );
   }
-
   private isGroup(params: { readonly chatId: number }): boolean {
     const result = params.chatId < 0;
     // this.logger.debug(`isGroup check for chatId ${params.chatId}: ${result}`); // Розкоментуйте для детального логування
@@ -966,6 +1044,7 @@ export class NotificationBotService implements OnModuleInit {
       this.logger.log('>>> EXITING refreshAllPlacesAndBots()'); // Лог виходу з методу
     }
   }
+
   // Змінено: createBot тепер повертає створений екземпляр або undefined
   private createBot(params: {
     readonly place: Place;
@@ -986,53 +1065,45 @@ export class NotificationBotService implements OnModuleInit {
       telegramBot.on('polling_error', (error) => { // Все ще корисно для діагностики внутрішніх помилок
          this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
       });
-
-      // --- ВИПРАВЛЕНИЙ БЛОК ---
-      telegramBot.on('webhook_error', (error: any) => { // Додаємо ': any', щоб TypeScript не скаржився
+      telegramBot.on('webhook_error', (error: any) => { // Додаємо обробник помилок вебхука
         // Безпечно перевіряємо наявність 'code' та 'message'
-        const errorCode = error?.code ? `Code: ${error.code}` : ''; // Перевіряємо чи існує error.code
-        const errorMessage = error?.message ? error.message : JSON.stringify(error); // Беремо message або весь об'єкт
+        const errorCode = error?.code ? `Code: ${error.code}` : '';
+        const errorMessage = error?.message ? error.message : JSON.stringify(error);
         this.logger.error(`${place.name}/${bot.botName} webhook_error: ${errorCode} ${errorMessage}`);
       });
-      // --- КІНЕЦЬ ВИПРАВЛЕНОГО БЛОКУ ---
-
       telegramBot.on('error', (error) => { // Загальний обробник помилок
         this.logger.error(`${place.name}/${bot.botName} general error: ${error}`, error instanceof Error ? error.stack : undefined); // Додано stack
       });
 
       // Обробники команд
-      telegramBot.onText(/\/start/, (msg) => {
-        // ... і так далі ...
-
-      // Обробники команд
       // Додаємо try...catch навколо кожного виклику handle... для кращої діагностики
       telegramBot.onText(/\/start/, (msg) => {
         this.logger.debug(`Received /start for place ${place.id} via onText`); // Лог
-        this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err.stack));
+        this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/current/, (msg) => {
         this.logger.debug(`Received /current for place ${place.id} via onText`); // Лог
-        this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err.stack));
+        this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/subscribe/, (msg) => {
         this.logger.debug(`Received /subscribe for place ${place.id} via onText`); // Лог
-        this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err.stack));
+        this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/unsubscribe/, (msg) => {
         this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`); // Лог
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err.stack));
+        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/stop/, (msg) => {
         this.logger.debug(`Received /stop for place ${place.id} via onText`); // Лог
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err.stack));
+        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/stats/, (msg) => {
         this.logger.debug(`Received /stats for place ${place.id} via onText`); // Лог
-        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err.stack));
+        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
       telegramBot.onText(/\/about/, (msg) => {
         this.logger.debug(`Received /about for place ${place.id} via onText`); // Лог
-        this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err.stack));
+        this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
 
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
@@ -1062,6 +1133,11 @@ export class NotificationBotService implements OnModuleInit {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { chatId, telegramBot } = params;
+    // Додаємо перевірку на null/undefined
+    if (!chatId || !telegramBot) {
+        this.logger.error('Missing parameters in notifyBotDisabled');
+        return;
+    }
     try { // Додано try...catch
         this.logger.log(`Sending MSG_DISABLED to chat ${chatId}`); // Лог
         await telegramBot.sendMessage(chatId, MSG_DISABLED, { parse_mode: 'HTML' });
@@ -1072,10 +1148,14 @@ export class NotificationBotService implements OnModuleInit {
 
   private async sleep(params: { readonly ms: number }): Promise<void> {
     // this.logger.debug(`Sleeping for ${params.ms} ms`); // Розкоментуйте для дуже детального логування
-    return new Promise((r) => setTimeout(r, params.ms));
+    // Додаємо перевірку на null/undefined
+    if (params?.ms > 0) {
+        return new Promise((r) => setTimeout(r, params.ms));
+    } else {
+        return Promise.resolve(); // Не чекаємо, якщо ms не задано або <= 0
+    }
   }
 
-  // --- Залишаємо реалізацію composeListedBotsMessage ---
   private async composeListedBotsMessage(): Promise<string> {
       this.logger.log('Composing listed bots message...'); // Лог
       try { // try...catch охоплює ВЕСЬ код методу
