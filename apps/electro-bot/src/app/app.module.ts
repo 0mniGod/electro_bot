@@ -6,7 +6,7 @@ import { KnexModule } from 'nestjs-knex';
 import { CronService } from './cron.service';
 // KyivElectricScheduleModule видалено з імпортів
 
-@Module({
+@Module({ 
   imports: [
     ElectricityAvailabilityModule,
     BotModule,
