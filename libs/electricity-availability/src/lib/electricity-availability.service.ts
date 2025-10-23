@@ -46,10 +46,11 @@ export class ElectricityAvailabilityService {
 
   public readonly availabilityChange$ = zip(
     this.place$,
-    timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000)
+    // Використовуємо EVERY_MINUTE для більш швидкої реакції
+    timer(0, CronExpression.EVERY_MINUTE) 
   ).pipe(
     map(([place]) => place),
-    filter((place) => !place.isDisabled),
+    filter((place) => place && !place.isDisabled), // Додано перевірку на place
     switchMap((place) => this.check(place)),
     distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
     map(({ place, isAvailable }) => {
@@ -63,7 +64,14 @@ export class ElectricityAvailabilityService {
     private readonly placeRepository: PlaceRepository,
     private readonly httpService: HttpService // <-- Додаємо HttpService
   ) {
-    this.availabilityChange$.subscribe();
+    this.availabilityChange$.subscribe(
+        (data) => {
+            this.logger.debug(`Availability change processed for placeId: ${data.placeId}`);
+        },
+        (error) => {
+            this.logger.error(`Error in availabilityChange$ stream: ${error}`, error instanceof Error ? error.stack : undefined);
+        }
+    );
   }
 
   // --- ПЕРЕПИСАНИЙ МЕТОД CHECK ---
@@ -73,7 +81,7 @@ export class ElectricityAvailabilityService {
   }> {
     const host = place.host;
     const port = 80; // Використовуємо порт 80, який у вас відкритий
-    // Використовуємо check-host.net, оскільки port.ping.pe вимагає User-Agent
+    // Використовуємо check-host.net
     const url = `https://check-host.net/check-tcp?host=${host}&port=${port}&max_nodes=1&json=true`;
 
     this.logger.verbose(`Starting TCP check for ${host}:${port} via API (${url})...`);
@@ -81,9 +89,12 @@ export class ElectricityAvailabilityService {
 
     try {
         const response = await firstValueFrom(
-            this.httpService.get(url, { timeout: 10000 })
+            this.httpService.get(url, { 
+                timeout: 10000, // Тайм-аут 10 секунд
+                headers: { 'User-Agent': 'Koyeb Electro Bot Check' } // Додаємо User-Agent
+            })
         );
-
+        
         // check-host.net повертає JSON. Якщо 'ok' = 1, запит пройшов.
         if (response.data && response.data.ok === 1) {
             // Отримуємо перший результат з вузла
@@ -103,7 +114,12 @@ export class ElectricityAvailabilityService {
         }
     } catch (error: any) {
         isAvailable = false;
-        this.logger.error(`TCP check via API failed (HTTP Error) for ${host}:${port}. Error: ${error.message}`);
+        // Логуємо помилку, тільки якщо це не тайм-аут (щоб не спамити, коли світла немає)
+        if (error.code !== 'ECONNABORTED' && (!error.response || error.response.status !== 504)) {
+             this.logger.error(`TCP check via API failed (HTTP Error) for ${host}:${port}. Error: ${error.message}`);
+        } else {
+             this.logger.warn(`TCP check via API timed out for ${host}:${port}. Assuming unavailable.`);
+        }
     }
 
     return { place, isAvailable };
@@ -111,8 +127,8 @@ export class ElectricityAvailabilityService {
   // --- КІНЕЦЬ ПЕРЕПИСАНОГО МЕТОДУ ---
 
   // --- ЦЕ МЕТОД, ЯКИЙ ВИКЛИКАЄ CRONSERVICE ---
-  // Ми перейменували його назад, щоб він відповідав cron.service.ts
-  @Cron(CronExpression.EVERY_2_MINUTES, { // ВИПРАВЛЕНО: CronExpression.EVERY_2_MINUTES (або EVERY_5_MINUTES, якщо 2 не працює)
+  // Ми використовуємо CronExpression.EVERY_MINUTE
+  @Cron(CronExpression.EVERY_MINUTE, { 
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
@@ -124,6 +140,8 @@ export class ElectricityAvailabilityService {
         if (place && !place.isDisabled) { // Додано перевірку на place
             this.logger.debug(`Cron: Pushing place ${place.name} to check queue.`);
             this.place$.next(place);
+        } else if (place) {
+            this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
         }
       });
     } catch (error) {
@@ -138,6 +156,10 @@ export class ElectricityAvailabilityService {
     readonly isAvailable: boolean;
   }): Promise<void> {
     const { place, isAvailable } = params;
+    if (!place) {
+        this.logger.error('handleAvailabilityChange called with undefined place.');
+        return;
+    }
     this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
     try {
         const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
@@ -156,6 +178,7 @@ export class ElectricityAvailabilityService {
   public async getLatestPlaceAvailability(params: {
     readonly placeId: string;
     readonly limit: number;
+    readonly to?: Date; // Додаємо необов'язковий параметр 'to'
   }): Promise<
     ReadonlyArray<{
       readonly time: Date;
@@ -164,7 +187,12 @@ export class ElectricityAvailabilityService {
   > {
     this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
     try {
-        return await this.electricityRepository.getLatest(params);
+        // Переконуємось, що передаємо 'to' якщо він є
+        return await this.electricityRepository.getLatest({
+            placeId: params.placeId,
+            limit: params.limit,
+            to: params.to
+        });
     } catch (error) {
         this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
         return []; // Повертаємо порожній масив у разі помилки
@@ -183,11 +211,15 @@ export class ElectricityAvailabilityService {
     readonly lastStateBeforeYesterday?: boolean;
   }> {
     const { place } = params;
+    if (!place) {
+        this.logger.error('getTodayAndYesterdayStats called with undefined place.');
+        return { history: { today: [], yesterday: [] } };
+    }
     this.logger.debug(`Getting today/yesterday stats for place ${place.id}`);
     try {
         const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
         const todayStart = startOfDay(now);
-        const yesterdayStart = startOfDay(addHours(todayStart, -2));
+        const yesterdayStart = startOfDay(addHours(todayStart, -2)); // Беремо початок попереднього дня
         const yesterdayEnd = endOfDay(yesterdayStart);
 
         const [todayHistory, yesterdayHistory] = await Promise.all([
@@ -222,8 +254,9 @@ export class ElectricityAvailabilityService {
             today: todayHistory,
             yesterday: yesterdayHistory,
           },
-          lastStateBeforeToday: lastStateBeforeToday?.isAvailable,
-          lastStateBeforeYesterday: lastStateBeforeYesterday?.isAvailable,
+          // Виправляємо помилку: база повертає is_available
+          lastStateBeforeToday: lastStateBeforeToday?.is_available, 
+          lastStateBeforeYesterday: lastStateBeforeYesterday?.is_available,
         };
     } catch (error) {
          this.logger.error(`Error in getTodayAndYesterdayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
@@ -240,6 +273,10 @@ export class ElectricityAvailabilityService {
     readonly totalMinutesUnavailable: number;
   }> {
     const { place, dateFromTargetMonth } = params;
+    if (!place || !dateFromTargetMonth) {
+        this.logger.error('getMonthStats called with undefined params.');
+        return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
+    }
     this.logger.debug(`Getting month stats for place ${place.id}, month: ${format(dateFromTargetMonth, 'yyyy-MM')}`);
     try {
         const start = convertToTimeZone(startOfMonth(dateFromTargetMonth), {
@@ -253,14 +290,14 @@ export class ElectricityAvailabilityService {
           from: start,
           to: end,
         });
-        if (!history.length) {
+        if (!history || !history.length) { // Додано перевірку
           this.logger.warn(`No history data found for month stats, place ${place.id}`);
           return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
         }
         let totalMinutesAvailable = 0;
         let totalMinutesUnavailable = 0;
         history.forEach(({ start, end, isEnabled }) => {
-           if (!start || !end) { this.logger.error('Invalid history item in getMonthStats'); return; }
+           if (!start || !end) { this.logger.error(`Invalid history item in getMonthStats: ${JSON.stringify({start, end, isEnabled})}`); return; }
            let durationInMinutes = 0;
            try {
               durationInMinutes = Math.abs(differenceInMinutes(new Date(end), new Date(start)));
@@ -278,15 +315,19 @@ export class ElectricityAvailabilityService {
         return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
     }
   }
-
+  
   // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStatsMessage(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
   }): Promise<string> {
+    if (!params.place) {
+        this.logger.error('getMonthStatsMessage called with undefined place.');
+        return '';
+    }
     this.logger.debug(`Getting month stats message for place ${params.place.id}`);
     try {
-        // !!! ВИПРАВЛЕННЯ: Викликаємо getMonthStats, А НЕ getMonthStatsMessage !!!
+        // !!! ВИПРАВЛЕННЯ: Викликаємо getMonthStats !!!
         const { totalMinutesAvailable, totalMinutesUnavailable } =
           await this.getMonthStats(params);
 
@@ -350,6 +391,10 @@ export class ElectricityAvailabilityService {
     }>
   > {
     const { place, date } = params;
+    if (!place || !date) {
+        this.logger.error('getDayStats called with undefined params.');
+        return [];
+    }
     this.logger.debug(`Getting day stats for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
     try {
         const start = convertToTimeZone(startOfDay(date), {
@@ -386,6 +431,10 @@ export class ElectricityAvailabilityService {
     >
   > {
     const { place, dateFrom, dateTo } = params;
+    if (!place || !dateFrom || !dateTo) {
+        this.logger.error('getDaysStats called with undefined params.');
+        return {};
+    }
     this.logger.debug(`Getting stats for ${place.id} from ${format(dateFrom, 'yyyy-MM-dd')} to ${format(dateTo, 'yyyy-MM-dd')}`);
     try {
         const days = eachDayOfInterval({ start: dateFrom, end: dateTo });
@@ -416,15 +465,24 @@ export class ElectricityAvailabilityService {
     readonly date: Date;
   }): Promise<ReadonlyArray<number>> {
     const { place, date } = params;
+    if (!place || !date) {
+        this.logger.error('getDayOffGroups called with undefined params.');
+        return [];
+    }
     this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
     const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
     const dayStats = await this.getDayStats({ place, date });
-
+    
+    if (!dayStats) { // Додано перевірку
+        this.logger.error(`getDayStats returned undefined for place ${place.id} in getDayOffGroups`);
+        return [];
+    }
+    
     if (dayStats.length === 1 && !dayStats[0].isEnabled) {
         this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
         return [0]; 
     }
-
+    
     if (dayStats.length === 1 && dayStats[0].isEnabled) {
         this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
         return [4]; 
