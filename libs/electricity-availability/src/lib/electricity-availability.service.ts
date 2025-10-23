@@ -1,62 +1,168 @@
-import { ElectricityRepository } from '@electrobot/electricity-repo';
-import { Injectable, Logger } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import * as ping from 'ping';
-import { firstValueFrom, Subject } from 'rxjs';
-import {
-  differenceInMinutes,
-  endOfMonth,
-  startOfMonth,
-  startOfToday,
-  startOfYesterday,
-} from 'date-fns';
-import { convertToLocalTime, convertToTimeZone } from 'date-fns-timezone';
-import { HistoryItem } from './history-item.type';
 import { Place } from '@electrobot/domain';
 import { PlaceRepository } from '@electrobot/place-repo';
+import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule'; // Замінюємо CronExpression на Cron
+import {
+  addHours,
+  addMonths,
+  differenceInMinutes,
+  eachDayOfInterval,
+  endOfDay,
+  endOfMonth,
+  format,
+  getDay,
+  startOfDay,
+  startOfMonth,
+  subMinutes,
+} from 'date-fns';
+import { convertToTimeZone } from 'date-fns-timezone';
+import { uk } from 'date-fns/locale';
+import { firstValueFrom, Subject, timer, zip } from 'rxjs'; // Імпортуємо Subject, timer, zip
+import {
+  distinctUntilChanged,
+  filter,
+  map,
+  switchMap,
+} from 'rxjs/operators';
+import { HistoryItem } from './history-item.type';
+import { ElectricityRepository } from './electricity.repository';
+// ping, ping-promise, net - ВИДАЛЕНО. Будемо використовувати HttpService
 
-const DEFAULT_TRESHOLD_MINUTES = 7;
-const HTTP_CHECK_TIMEOUT_SECONDS = 1;
-const TIME_TO_WAIT_BEFORE_NEXT_ATTEMPT_TO_CHECK_AVAILABILITY_AFTER_FAILED_ONE_SECONDS = 10;
+// const PING_TIMEOUT_IN_SECONDS = 10; // Більше не потрібно
+const CHECK_INTERVAL_IN_MINUTES = 2; // Частота перевірки Cron
+const MAX_UNAVAILABILITY_TRESHOLD_IN_MINUTES = 20;
 
 @Injectable()
 export class ElectricityAvailabilityService {
-  private readonly logger = new Logger(ElectricityAvailabilityService.name);
-  private readonly _availabilityChange$ = new Subject<{
-    readonly placeId: string;
-  }>();
-  private isCheckingPlaceAvailability: Record<string, boolean> = {};
+  private readonly logger = new Logger(
+    ElectricityAvailabilityService.name
+  );
+  // Змінюємо тип place$, додаємо forceCheck$
+  private readonly place$ = new Subject<Place>();
+  private readonly forceCheck$ = new Subject<Place>();
 
-  public readonly availabilityChange$ =
-    this._availabilityChange$.asObservable();
+  public readonly availabilityChange$ = zip(
+    this.place$,
+    timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000)
+  ).pipe(
+    map(([place]) => place),
+    filter((place) => !place.isDisabled),
+    switchMap((place) => this.check(place)),
+    distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
+    map(({ place, isAvailable }) => {
+      this.handleAvailabilityChange({ place, isAvailable });
+      return { placeId: place.id };
+    })
+  );
 
   constructor(
-    private readonly httpService: HttpService,
     private readonly electricityRepository: ElectricityRepository,
-    private readonly placeRepository: PlaceRepository
-  ) {}
+    private readonly placeRepository: PlaceRepository,
+    private readonly httpService: HttpService // <-- Додаємо HttpService
+  ) {
+    this.availabilityChange$.subscribe();
+  }
 
-  public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    const places = await this.placeRepository.getAllPlaces();
-    const jobs = places
-      .filter((place) => !place.isDisabled)
-      .map((place) =>
-        this.checkAndSavePlaceElectricityAvailability({ place })
-      );
+  // --- ЦЕЙ МЕТОД ПОВНІСТЮ ПЕРЕПИСАНО ---
+  private async check(place: Place): Promise<{
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }> {
+    // Ми будемо використовувати API-сервіс, який перевіряє TCP-порт 80
+    // Оскільки ми знаємо, що ping (ICMP) заблокований, а TCP/80 - відкритий
 
-    await Promise.all(jobs);
+    const host = place.host;
+    const port = 80; // Використовуємо порт 80, який у вас відкритий
+    const url = `https://port.ping.pe/${host}/${port}`; // Простий API
+
+    this.logger.verbose(`Starting TCP check for ${host}:${port} via API (${url})...`);
+
+    let isAvailable = false; // За замовчуванням - світла немає
+
+    try {
+        // Робимо HTTP GET запит до API
+        const response = await firstValueFrom(
+            this.httpService.get(url, {
+                timeout: 10000, // Тайм-аут 10 секунд
+                headers: { 'User-Agent': 'curl/7.64.1' } // Деякі API вимагають User-Agent
+            })
+        );
+
+        // `port.ping.pe` повертає 200 OK і тіло "OK..." якщо порт відкритий
+        // і 200 OK з тілом "Error..." або інший код (напр. 500) якщо закритий
+        const responseText = String(response.data);
+
+        if (response.status === 200 && responseText.includes('OK')) {
+            isAvailable = true;
+            this.logger.debug(`TCP check successful for ${host}:${port}. API response: ${responseText.substring(0, 20)}`);
+        } else {
+            isAvailable = false;
+            this.logger.warn(`TCP check failed (API reported failure) for ${host}:${port}. Status: ${response.status}. Response: ${responseText.substring(0, 50)}`);
+        }
+    } catch (error: any) {
+        // Якщо запит до API "впав" (тайм-аут, 500, ECONNREFUSED)
+        isAvailable = false;
+        this.logger.error(`TCP check via API failed for ${host}:${port}. Error: ${error.message}`);
+    }
+
+    return { place, isAvailable };
+  }
+  // --- КІНЕЦЬ ПЕРЕПИСАНОГО МЕТОДУ ---
+
+  // Викликається кожні 2 хвилини
+  @Cron(CronExpression.EVERY_2_MINUTES, {
+    name: 'check-electricity-availability',
+  })
+  private async handleCron(): Promise<void> {
+    this.logger.verbose('Cron job "check-electricity-availability" started.');
+    try {
+      const places = await this.placeRepository.getAllPlaces();
+      this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
+      places.forEach((place) => {
+        this.logger.debug(`Cron: Pushing place ${place.name} to check queue.`);
+        this.place$.next(place);
+      });
+    } catch (error) {
+       this.logger.error(`Cron: Failed to load places: ${error}`, error instanceof Error ? error.stack : undefined);
+    }
+  }
+
+  private async handleAvailabilityChange(params: {
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }): Promise<void> {
+    const { place, isAvailable } = params;
+    this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+    try {
+        const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+        if (!latest || latest.isAvailable !== isAvailable) {
+          this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
+          await this.electricityRepository.save({ placeId: place.id, isAvailable });
+        } else {
+          this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
+        }
+    } catch (error) {
+         this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+    }
   }
 
   public async getLatestPlaceAvailability(params: {
     readonly placeId: string;
-    readonly limit?: number;
+    readonly limit: number;
   }): Promise<
-    Array<{
+    ReadonlyArray<{
       readonly time: Date;
       readonly isAvailable: boolean;
     }>
   > {
-    return this.electricityRepository.getAvailability(params);
+    this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
+    try {
+        return await this.electricityRepository.getLatest(params);
+    } catch (error) {
+        this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
+        return []; // Повертаємо порожній масив у разі помилки
+    }
   }
 
   // TODO: refactor (make cleaner)
@@ -64,292 +170,294 @@ export class ElectricityAvailabilityService {
     readonly place: Place;
   }): Promise<{
     readonly history: {
-      readonly today?: Array<HistoryItem>;
-      readonly yesterday?: Array<HistoryItem>;
+      readonly today: ReadonlyArray<HistoryItem>;
+      readonly yesterday: ReadonlyArray<HistoryItem>;
     };
     readonly lastStateBeforeToday?: boolean;
     readonly lastStateBeforeYesterday?: boolean;
   }> {
     const { place } = params;
-    const now = new Date();
-    const todayStart = convertToLocalTime(startOfToday(), {
-      timeZone: place.timezone,
-    });
-    const yesterdayStart = convertToLocalTime(startOfYesterday(), {
-      timeZone: place.timezone,
-    });
+    this.logger.debug(`Getting today/yesterday stats for place ${place.id}`);
+    try {
+        const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
+        const todayStart = startOfDay(now);
+        const yesterdayStart = startOfDay(addHours(todayStart, -2));
+        const yesterdayEnd = endOfDay(yesterdayStart);
 
-    const todayData = (
-      await this.electricityRepository.getAvailability({
-        placeId: place.id,
-        from: todayStart,
-        till: now,
-      })
-    ).map((item) => ({
-      ...item,
-      time: convertToTimeZone(item.time, { timeZone: place.timezone }),
-    }));
-    const todayHistory = this.availabilityDataToHistory({
-      start: todayStart,
-      end: now,
-      sortedAvailabilityData: todayData,
-    });
-    const beforeTodayRes = await this.electricityRepository.getAvailability({
-      placeId: place.id,
-      till: todayStart,
-      limit: 1,
-    });
-    const lastStateBeforeToday =
-      beforeTodayRes.length > 0 ? beforeTodayRes[0].isAvailable : undefined;
+        const [todayHistory, yesterdayHistory] = await Promise.all([
+          this.electricityRepository.getHistory({
+            placeId: place.id,
+            from: todayStart,
+            to: now,
+          }),
+          this.electricityRepository.getHistory({
+            placeId: place.id,
+            from: yesterdayStart,
+            to: yesterdayEnd,
+          }),
+        ]);
 
-    const yesterdayData = (
-      await this.electricityRepository.getAvailability({
-        placeId: place.id,
-        from: yesterdayStart,
-        till: todayStart,
-      })
-    ).map((item) => ({
-      ...item,
-      time: convertToTimeZone(item.time, { timeZone: place.timezone }),
-    }));
-    const yesterdayHistory = this.availabilityDataToHistory({
-      start: yesterdayStart,
-      end: todayStart,
-      sortedAvailabilityData: yesterdayData,
-    });
-    const beforeYesterdayRes = await this.electricityRepository.getAvailability(
-      {
-        placeId: place.id,
-        till: yesterdayStart,
-        limit: 1,
-      }
-    );
-    const lastStateBeforeYesterday =
-      beforeYesterdayRes.length > 0
-        ? beforeYesterdayRes[0].isAvailable
-        : undefined;
+        const [lastStateBeforeToday] =
+          await this.electricityRepository.getLatest({
+            placeId: place.id,
+            limit: 1,
+            to: subMinutes(todayStart, 1),
+          });
 
-    return {
-      history: {
-        today: todayHistory,
-        yesterday: yesterdayHistory,
-      },
-      lastStateBeforeToday,
-      lastStateBeforeYesterday,
-    };
+        const [lastStateBeforeYesterday] =
+          await this.electricityRepository.getLatest({
+            placeId: place.id,
+            limit: 1,
+            to: subMinutes(yesterdayStart, 1),
+          });
+
+        return {
+          history: {
+            today: todayHistory,
+            yesterday: yesterdayHistory,
+          },
+          lastStateBeforeToday: lastStateBeforeToday?.isAvailable,
+          lastStateBeforeYesterday: lastStateBeforeYesterday?.isAvailable,
+        };
+    } catch (error) {
+         this.logger.error(`Error in getTodayAndYesterdayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         // Повертаємо порожню структуру у разі помилки
+         return { history: { today: [], yesterday: [] } };
+    }
   }
-
-  public async getMonthStatsMessage(params: {
-    readonly place: Place;
-    readonly dateFromTargetMonth: Date;
-  }): Promise<
-    | {
-        readonly monitoringFirstMoment: Date;
+  public async getMonthStats(params: {
+        readonly place: Place;
+        readonly dateFromTargetMonth: Date;
+      }): Promise<{
         readonly totalMinutesAvailable: number;
         readonly totalMinutesUnavailable: number;
-      }
-    | undefined
-  > {
-    const { place, dateFromTargetMonth } = params;
-    const monthStart = startOfMonth(dateFromTargetMonth);
-    const monthEnd = endOfMonth(dateFromTargetMonth);
-    let monthData = await this.electricityRepository.getAvailability({
-      placeId: place.id,
-      from: monthStart,
-      till: monthEnd,
-      orderBy: 'asc',
-    });
-
-    if (monthData.length <= 1) {
-      return undefined;
-    }
-
-    let monitoringFirstMoment = monthData[0].time;
-
-    const lastStateBeforeMonthStarted =
-      await this.electricityRepository.getAvailability({
-        placeId: place.id,
-        till: monthStart,
-        limit: 1,
-      });
-
-    if (lastStateBeforeMonthStarted.length > 0) {
-      monitoringFirstMoment = lastStateBeforeMonthStarted[0].time;
-
-      monthData = [
-        {
-          time: monthStart,
-          isAvailable: lastStateBeforeMonthStarted[0].isAvailable,
-        },
-        ...monthData,
-      ];
-    }
-
-    const firstStateAfterMonthStarted =
-      await this.electricityRepository.getAvailability({
-        placeId: place.id,
-        from: monthEnd,
-        limit: 1,
-        orderBy: 'asc',
-      });
-
-    if (firstStateAfterMonthStarted.length > 0) {
-      monthData = [
-        ...monthData,
-        {
-          time: monthEnd,
-          isAvailable: firstStateAfterMonthStarted[0].isAvailable,
-        },
-      ];
-    }
-
-    let totalMinutesAvailable = 0;
-    let totalMinutesUnavailable = 0;
-
-    for (let i = 0; i < monthData.length - 1; i++) {
-      const item = monthData[i];
-      const nextItem = monthData[i + 1];
-      const minutes = Math.abs(differenceInMinutes(nextItem.time, item.time));
-
-      if (item.isAvailable) {
-        totalMinutesAvailable += minutes;
-      } else {
-        totalMinutesUnavailable += minutes;
-      }
-    }
-
-    return {
-      monitoringFirstMoment,
-      totalMinutesAvailable,
-      totalMinutesUnavailable,
-    };
-  }
-
-  public async checkAndSavePlaceElectricityAvailability(params: {
-    readonly place: Place;
-  }): Promise<void> {
-    const { place } = params;
-
-    this.logger.verbose(`Starting availability check of ${place.name}`);
-
-    const isChecking = !!this.isCheckingPlaceAvailability[place.id];
-
-    if (isChecking) {
-      this.logger.log(
-        `Availability check of ${place.name} is in progress when next check was launched, skipping next check`
-      );
-
-      return;
-    }
-
-    this.isCheckingPlaceAvailability[place.id] = true;
-
-    let alive = false;
-    let currentTime = Date.now();
-    const tresholdMinutes =
-      place.unavailabilityTresholdMinutes ?? DEFAULT_TRESHOLD_MINUTES;
-    const tresholdMilliseconds = tresholdMinutes * 60 * 1000;
-    const finishTime = currentTime + tresholdMilliseconds;
-
-    while (!alive && currentTime < finishTime) {
-      if (place.checkType === 'ping') {
-        const res = await ping.promise.probe(place.host);
-
-        alive = res.alive;
-      } else if (place.checkType === 'http') {
+      }> {
+        const { place, dateFromTargetMonth } = params;
+        this.logger.debug(`Getting month stats for place ${place.id}, month: ${format(dateFromTargetMonth, 'yyyy-MM')}`);
         try {
-          const httpRes = await firstValueFrom(this.httpService.get(params.place.host, {
-            timeout: 1000 * HTTP_CHECK_TIMEOUT_SECONDS,
-          }));
+            const start = convertToTimeZone(startOfMonth(dateFromTargetMonth), {
+              timeZone: place.timezone,
+            });
+            const end = convertToTimeZone(endOfMonth(dateFromTargetMonth), {
+              timeZone: place.timezone,
+            });
 
-          this.logger.verbose(`HTTP ${params.place.host} successful check result for ${place.name}: ${httpRes.status} status code`);
+            const history = await this.electricityRepository.getHistory({
+              placeId: place.id,
+              from: start,
+              to: end,
+            });
 
-          alive = true;
-        } catch(e) {
-          this.logger.verbose(`HTTP ${params.place.host} unsuccessful check result for ${place.name}: ${e}`);
+            if (!history.length) {
+              this.logger.warn(`No history data found for month stats, place ${place.id}`);
+              return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
+            }
 
-          alive = false;
+            let totalMinutesAvailable = 0;
+            let totalMinutesUnavailable = 0;
+
+            history.forEach(({ start, end, isEnabled }) => {
+               // Додаємо перевірку на start/end
+               if (!start || !end) {
+                  this.logger.error(`Invalid history item found during month stats: ${JSON.stringify({start, end, isEnabled})}`);
+                  return;
+               }
+               let durationInMinutes = 0;
+               try {
+                  durationInMinutes = Math.abs(differenceInMinutes(new Date(end), new Date(start)));
+               } catch (diffError) {
+                  this.logger.error(`Error calculating differenceInMinutes for month stats: ${diffError}`);
+                  return; // Пропускаємо
+               }
+
+              if (isEnabled) {
+                totalMinutesAvailable += durationInMinutes;
+              } else {
+                totalMinutesUnavailable += durationInMinutes;
+              }
+            });
+
+             this.logger.debug(`Calculated month stats for place ${place.id}: Available=${totalMinutesAvailable}, Unavailable=${totalMinutesUnavailable}`);
+            return { totalMinutesAvailable, totalMinutesUnavailable };
+        } catch (error) {
+            this.logger.error(`Error in getMonthStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+            return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 }; // Повертаємо 0 у разі помилки
         }
-      } else {
-        this.logger.error(
-          `Unsupported ${place.checkType} check type for ${place.name}`
-        );
-
-        return;
       }
 
-      if (!alive) {
-        await this.sleep({ ms: 1 * TIME_TO_WAIT_BEFORE_NEXT_ATTEMPT_TO_CHECK_AVAILABILITY_AFTER_FAILED_ONE_SECONDS }); // 1s
+      public async getMonthStatsMessage(params: {
+        readonly place: Place;
+        readonly dateFromTargetMonth: Date;
+      }): Promise<string> {
+        this.logger.debug(`Getting month stats message for place ${params.place.id}`);
+        try {
+            const { totalMinutesAvailable, totalMinutesUnavailable } =
+              await this.getMonthStats(params);
+
+            const totalMinutes = totalMinutesAvailable + totalMinutesUnavailable;
+            if (totalMinutes === 0) {
+              this.logger.warn(`Total minutes for month stats message is zero for place ${params.place.id}`);
+              return ''; // Повертаємо порожній рядок, якщо немає даних
+            }
+
+            const percentAvailable = Math.round( // Використовуємо Math.round
+              (100 * totalMinutesAvailable) / totalMinutes
+            );
+            const percentUnavailable = 100 - percentAvailable;
+            const baseDate = convertToTimeZone(new Date(), {
+              timeZone: params.place.timezone,
+            });
+            const baseDatePlusAvailable = addMinutes(
+              baseDate,
+              totalMinutesAvailable
+            );
+            const howLongAvailable = formatDistance(baseDate, baseDatePlusAvailable, {
+              locale: uk,
+              includeSeconds: false,
+            });
+            const baseDatePlusUnavailable = addMinutes(
+              baseDate,
+              totalMinutesUnavailable
+            );
+            const howLongUnavailable = formatDistance(
+              baseDate,
+              baseDatePlusUnavailable,
+              {
+                locale: uk,
+                includeSeconds: false,
+              }
+            );
+
+            const m = getMonth(params.dateFromTargetMonth);
+            const mn =
+              m === 0 ? 'січні' : m === 1 ? 'лютому' : m === 2 ? 'березні' :
+              m === 3 ? 'квітні' : m === 4 ? 'травні' : m === 5 ? 'червні' :
+              m === 6 ? 'липні' : m === 7 ? 'серпні' : m === 8 ? 'вересні' :
+              m === 9 ? 'жовтні' : m === 10 ? 'листопаді' : 'грудні';
+
+            return `У ${mn} ми насолоджувалися світлом ${percentAvailable}% часу (сумарно ${howLongAvailable}) і потерпали від темряви ${percentUnavailable}% часу (сумарно ${howLongUnavailable}).`;
+        } catch (error) {
+             this.logger.error(`Error in getMonthStatsMessage for ${params.place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+             return ''; // Повертаємо порожній рядок у разі помилки
+        }
       }
 
-      currentTime = Date.now();
+      public async getDayStats(params: {
+        readonly place: Place;
+        readonly date: Date;
+      }): Promise<
+        ReadonlyArray<{
+          readonly start: Date;
+          readonly end: Date;
+          readonly isEnabled: boolean;
+        }>
+      > {
+        const { place, date } = params;
+        this.logger.debug(`Getting day stats for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
+        try {
+            const start = convertToTimeZone(startOfDay(date), {
+              timeZone: place.timezone,
+            });
+            const end = convertToTimeZone(endOfDay(date), {
+              timeZone: place.timezone,
+            });
+
+            return await this.electricityRepository.getHistory({
+              placeId: place.id,
+              from: start,
+              to: end,
+            });
+        } catch (error) {
+             this.logger.error(`Error in getDayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+             return [];
+        }
+      }
+
+      public async getDaysStats(params: {
+        readonly place: Place;
+        readonly dateFrom: Date;
+        readonly dateTo: Date;
+      }): Promise<
+        Record<
+          string,
+          ReadonlyArray<{
+            readonly start: Date;
+            readonly end: Date;
+            readonly isEnabled: boolean;
+          }>
+        >
+      > {
+        const { place, dateFrom, dateTo } = params;
+        this.logger.debug(`Getting stats for ${place.id} from ${format(dateFrom, 'yyyy-MM-dd')} to ${format(dateTo, 'yyyy-MM-dd')}`);
+        try {
+            const days = eachDayOfInterval({ start: dateFrom, end: dateTo });
+            const result: Record<
+              string,
+              ReadonlyArray<{
+                readonly start: Date;
+                readonly end: Date;
+                readonly isEnabled: boolean;
+              }>
+            > = {};
+
+            for (const day of days) {
+              const dayStats = await this.getDayStats({ place, date: day });
+              result[format(day, 'yyyy-MM-dd')] = dayStats;
+            }
+
+            return result;
+        } catch (error) {
+             this.logger.error(`Error in getDaysStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+             return {};
+        }
+      }
+
+      public async getDayOffGroups(params: {
+        readonly place: Place;
+        readonly date: Date;
+      }): Promise<ReadonlyArray<number>> {
+        const { place, date } = params;
+        this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
+        const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
+        const dayStats = await this.getDayStats({ place, date });
+        
+        // Перевіряємо, чи день повністю без світла
+        if (dayStats.length === 1 && !dayStats[0].isEnabled) {
+            // Якщо за весь день був лише один запис "немає світла"
+            this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
+            return [0]; // Група 0 (повністю без світла)
+        }
+        
+        // Перевіряємо, чи день повністю зі світлом
+        if (dayStats.length === 1 && dayStats[0].isEnabled) {
+             // Якщо за весь день був лише один запис "є світло"
+            this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
+            return [4]; // Група 4 (повністю зі світлом)
+        }
+
+        // Логіка для звичайних днів (пн-пт)
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          if (dayStats.length === 3) { // 3 інтервали (вимк-увімк-вимк)
+            this.logger.log(`Place ${place.id} (weekday) has 3 intervals. Returning group 1.`);
+            return [1]; // Група 1
+          }
+          if (dayStats.length === 5) { // 5 інтервалів
+             this.logger.log(`Place ${place.id} (weekday) has 5 intervals. Returning group 2.`);
+            return [2]; // Група 2
+          }
+          // Інші випадки на буднях
+           this.logger.warn(`Place ${place.id} (weekday) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+          return []; // Невідома група
+        } 
+        // Логіка для вихідних (сб, нд)
+        else { 
+            if (dayStats.length === 3) { // 3 інтервали (вимк-увімк-вимк)
+                this.logger.log(`Place ${place.id} (weekend) has 3 intervals. Returning group 3.`);
+                return [3]; // Група 3
+            }
+             // Інші випадки на вихідних
+             this.logger.warn(`Place ${place.id} (weekend) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+            return []; // Невідома група
+        }
+      }
     }
-
-    const [latest] = await this.electricityRepository.getAvailability({
-      placeId: place.id,
-      limit: 1,
-    });
-
-    if (latest?.isAvailable === alive) {
-      this.isCheckingPlaceAvailability[place.id] = false;
-
-      return;
-    }
-
-    await this.electricityRepository.saveAvailability({
-      placeId: place.id,
-      isAvailable: alive,
-    });
-
-    this._availabilityChange$.next({ placeId: place.id });
-
-    this.logger.verbose(
-      `Availability state of ${place.name} changed from ${latest?.isAvailable} to ${alive}, saving`
-    );
-
-    this.isCheckingPlaceAvailability[place.id] = false;
-  }
-
-  private availabilityDataToHistory(params: {
-    readonly start: Date;
-    readonly end: Date;
-    readonly sortedAvailabilityData: Array<{
-      readonly time: Date;
-      readonly isAvailable: boolean;
-    }>;
-  }): Array<HistoryItem> {
-    const { start, end, sortedAvailabilityData } = params;
-    const fromOldest = [...sortedAvailabilityData].reverse();
-
-    if (fromOldest.length === 0) {
-      return [];
-    }
-
-    const first: HistoryItem = {
-      start,
-      end: fromOldest[0].time,
-      isEnabled: !fromOldest[0].isAvailable,
-    };
-    const last: HistoryItem = {
-      start: fromOldest[fromOldest.length - 1].time,
-      end,
-      isEnabled: fromOldest[fromOldest.length - 1].isAvailable,
-    };
-
-    if (fromOldest.length === 1) {
-      return [first, last];
-    }
-
-    const middle = fromOldest.slice(0, -1).map((item, i) => ({
-      start: item.time,
-      end: fromOldest[i + 1].time,
-      isEnabled: item.isAvailable,
-    }));
-
-    return [first, ...middle, last];
-  }
-
-  private async sleep(params: { readonly ms: number }): Promise<void> {
-    return new Promise((r) => setTimeout(r, params.ms));
-  }
-}
