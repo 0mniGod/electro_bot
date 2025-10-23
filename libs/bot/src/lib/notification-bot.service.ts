@@ -3,7 +3,7 @@ import {
   // KyivElectricstatusScheduleService, // Закоментовано імпорт
 } from '@electrobot/electricity-availability';
 import { UserRepository } from '@electrobot/user-repo';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   addMinutes,
   addMonths,
@@ -46,7 +46,7 @@ const MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES = 30;
 const BULK_NOTIFICATION_DELAY_IN_MS = 50;
 
 @Injectable()
-export class NotificationBotService {
+export class NotificationBotService implements OnModuleInit{
   private readonly logger = new Logger(NotificationBotService.name);
   private places: Record<string, Place> = {};
   private placeBots: Record<
@@ -64,7 +64,8 @@ export class NotificationBotService {
     private readonly userRepository: UserRepository,
     private readonly placeRepository: PlaceRepository
   ) {
-    this.refreshAllPlacesAndBots();
+    this.logger.log('>>> Constructor called');
+    //this.refreshAllPlacesAndBots();
 
     const refreshRate = 10 * 60 * 1000; // 10 min
 
@@ -78,7 +79,27 @@ export class NotificationBotService {
       }
     );
   }
-
+async onModuleInit(): Promise<void> {
+    this.logger.log('>>> ENTERING onModuleInit()');
+    this.logger.log('Starting initial refresh...');
+    try {
+      await this.refreshAllPlacesAndBots();
+      const refreshRate = 10 * 60 * 1000;
+      if (!(global as any).botRefreshInterval) {
+         (global as any).botRefreshInterval = setInterval(() => {
+             this.logger.log('>>> Interval triggered: calling refreshAllPlacesAndBots()');
+             this.refreshAllPlacesAndBots();
+         }, refreshRate);
+         this.logger.log(`Periodic refresh scheduled every ${refreshRate / 1000 / 60} minutes.`);
+      } else {
+         this.logger.warn('Periodic refresh interval already set.');
+      }
+    } catch (error) {
+      this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(`>>> CRITICAL ERROR inside onModuleInit during initial refresh: ${error}`, error instanceof Error ? error.stack : undefined);
+    }
+    this.logger.log('>>> EXITING onModuleInit()');
+}
   public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
     const allPlaces = Object.values(this.places);
 
@@ -870,6 +891,7 @@ export class NotificationBotService {
   }
 
   private async refreshAllPlacesAndBots(): Promise<void> {
+    this.logger.log('>>> ENTERING refreshAllPlacesAndBots()');
     if (this.isRefreshingPlacesAndBots) {
       return;
     }
@@ -877,7 +899,8 @@ export class NotificationBotService {
     this.isRefreshingPlacesAndBots = true;
     try {
       const places = await this.placeRepository.getAllPlaces();
-
+      this.logger.log(`Loaded ${places.length} places from DB. IDs: ${JSON.stringify(places.map(p => p.id))}`);
+      
       this.places = places.reduce<Record<string, Place>>(
         (res, place) => ({
           ...res,
@@ -887,11 +910,13 @@ export class NotificationBotService {
       );
 
       const placeBots = await this.placeRepository.getAllPlaceBots();
-
+      this.logger.log(`Loaded ${placeBots.length} bots configurations from DB. place_ids: ${JSON.stringify(placeBots.map(b => b.placeId))}`);
+      
       this.logger.log(`Loaded ${places.length} places from DB.`);
       this.logger.log(`Loaded ${placeBots.length} bots configurations from DB.`);
             
       placeBots.forEach((bot) => {
+        this.logger.log(`Processing bot config for place_id: ${bot.placeId}, isEnabled: ${bot.isEnabled}, bot_name: ${bot.botName}`);
         if (!bot.isEnabled) {
           // !This will only skip bot on first creation, but will not disable already created bot
           // !So app restart is needed to stop bot polling
@@ -917,11 +942,12 @@ export class NotificationBotService {
 
           return;
         }
+        this.logger.log(`Creating NEW bot instance for place ${place.id}`);
 
         this.createBot({ place, bot });
       });
     } catch (e) {
-      //
+      this.logger.error(`>>> ERROR inside refreshAllPlacesAndBots during DB fetch or processing: ${e}`, e instanceof Error ? e.stack : undefined);
     }
 
     this.isRefreshingPlacesAndBots = false;
@@ -935,11 +961,9 @@ export class NotificationBotService {
 //    const telegramBot = new TelegramBot(bot.token, { polling: true });
 this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token.substring(0, 10)}...`);
     const telegramBot = new TelegramBot(bot.token);
+    this.placeBots[bot.placeId] = { bot, telegramBot };
+    this.logger.log(`Successfully created and stored bot instance for place ${place.id}. Total instances: ${Object.keys(this.placeBots).length}`); // <-- ДОДАТИ
 
-    this.placeBots[bot.placeId] = {
-      bot,
-      telegramBot,
-    };
     
 this.logger.log(`Successfully created and stored bot instance for place ${place.id}. Total instances: ${Object.keys(this.placeBots).length}`);
     
@@ -949,8 +973,9 @@ this.logger.log(`Successfully created and stored bot instance for place ${place.
 
     // Matches /start
     telegramBot.onText(/\/start/, (msg) =>
-      this.handleStartCommand({ msg, place, bot, telegramBot })
-    );
+      this.handleStartCommand({ msg, place, bot, telegramBot }));
+       this.logger.debug(`Received /start for place ${place.id} via onText`); // 
+      this.handleStartCommand({ msg, place, bot, telegramBot });   
 
     // Matches /current
     telegramBot.onText(/\/current/, (msg) =>
@@ -1027,4 +1052,6 @@ this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys:
     return undefined;
   }
 }
+    this.isRefreshingPlacesAndBots = false;
+    this.logger.log('>>> EXITING refreshAllPlacesAndBots()');
 }
