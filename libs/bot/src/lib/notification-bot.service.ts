@@ -584,7 +584,7 @@ export class NotificationBotService implements OnModuleInit {
   }): Promise<string> {
       this.logger.log(`Composing monthly stats message for place ${params.place.id}`); // Лог
       try { // Додано try...catch
-           const monthStats =
+          const monthStats =
             await this.electricityAvailabilityService.getMonthStats(params);
           if (!monthStats) {
             this.logger.warn(`No monthly stats data found for place ${params.place.id}`); // Лог
