@@ -13,12 +13,20 @@ import { CronService } from './cron.service';
     BotModule,
     // ScheduleModule.forRoot() видалено
     // KyivElectricScheduleModule видалено
-    KnexModule.forRoot({
-      config: {
-        client: 'pg',
-        connection: process.env.DATABASE_URL, // Цей рядок правильний
-      },
-    }),
+  KnexModule.forRoot({
+  config: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL + '?ssl=true', // <-- Додаємо ?ssl=true до URL
+    // --- Додаємо цей об'єкт ---
+    /* Або спробуйте так, якщо '?ssl=true' не спрацює для Knex:
+    connection: {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }, // Дозволяє самопідписані сертифікати (часто потрібно для хмарних БД)
+    },
+    */
+   // --------------------------
+  },
+}),
   ],
   providers: [CronService],
 })
