@@ -18,7 +18,7 @@ export const EMOJ_SYMBOLS_OVER_MOUTH = emoji.get('symbols_over_mouth');
 
 export const MSG_DISABLED_REGULAR_SUFFIX =
   'Не забувай підтримувати українську армію!\n' +
-  'Ось один із зручних способів зробити донат: @Donate1024Bot.';
+  'Ось один із зручних способів зробити донат: .';
 
 export const MSG_LAUNCH_DOC_LINK =
   '<a href="https://zd333.github.io/electro_bot/doc/launch-bot-for-my-place.html">Як ти можеш запустити такого бота для власної локації без всякого програмування</a>';
@@ -35,7 +35,6 @@ export const RESP_START = (params: {
   `відключенням за поточну і попередню добу, сумарний час наявності/відсутності світла).\n\n` +
   `Контроль наявності світла відбувається за допомогою перевірки Інтернет зв‘язку з провайдером ${params.place}. Зауваж, що в разі проблем з Інтернетом бот може видавати невірну інформацію.\n\n` +
   `Зроблено з ${EMOJ_HEART} @oleksandr_changli\n\n` +
-  `https://www.instagram.com/oleksandr_changli/\n\n` +
   params.listedBotsMessage +
   `${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
@@ -54,7 +53,7 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\nСлава Україні! ${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
+  `\nСлава Україні!`;
 export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly when: string;
   readonly howLong: string;
@@ -88,7 +87,7 @@ export const RESP_ABOUT = (params: { readonly listedBotsMessage: string }) =>
   `https://www.instagram.com/oleksandr_changli/\n\n` +
   `${MSG_LAUNCH_DOC_LINK}\n\n` +
   params.listedBotsMessage +
-  `Якщо тобі подобається цей бот - можеш подякувати донатом на підтримку української армії @Donate1024Bot.\n\n`;
+  `Якщо тобі подобається цей бот - можеш подякувати донатом на підтримку української армії .\n\n`;
 export const RESP_ENABLED_SHORT = (params: {
   readonly when: string;
   readonly place: string;
