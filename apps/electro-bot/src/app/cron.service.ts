@@ -3,7 +3,7 @@ import { ElectricityAvailabilityService } from '@electrobot/electricity-availabi
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-@Injectable()
+@Injectable() 
 export class CronService {
   private readonly logger = new Logger(CronService.name);
 
