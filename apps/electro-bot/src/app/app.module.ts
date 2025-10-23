@@ -11,7 +11,7 @@ import { CronService } from './cron.service';
   imports: [
     ElectricityAvailabilityModule, // Це модуль, який пінгує ваш IP
     BotModule,
-    ScheduleModule.forRoot() видалено
+    ScheduleModule.forRoot() 
     // KyivElectricScheduleModule видалено
   KnexModule.forRoot({
   config: {
