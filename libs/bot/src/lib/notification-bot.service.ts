@@ -60,30 +60,18 @@ export class NotificationBotService implements OnModuleInit {
   > = {};
   private isRefreshingPlacesAndBots = false;
 
-  constructor(
-    private readonly electricityAvailabilityService: ElectricityAvailabilityService,
-    // private readonly kyivElectricstatusScheduleService: KyivElectricstatusScheduleService, // Закоментовано ін'єкцію залежності
-    private readonly userRepository: UserRepository,
-    private readonly placeRepository: PlaceRepository
-  ) {
-    this.logger.log('>>> Constructor called'); // Лог конструктора
-    // Виклик refreshAllPlacesAndBots та setInterval перенесено в onModuleInit
+constructor(
+  private readonly electricityAvailabilityService: ElectricityAvailabilityService,
+  private readonly userRepository: UserRepository,
+  private readonly placeRepository: PlaceRepository
+) {
+  this.logger.log('>>> Constructor called'); 
 
-    // Підписка на зміни доступності
-    this.electricityAvailabilityService.availabilityChange$.subscribe(
-      ({ placeId }) => {
-        this.logger.log(`Received availability change event for placeId: ${placeId}`);
-        try { // Додано try-catch для безпеки
-          this.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({
-            placeId,
-          });
-        } catch (error) {
-           this.logger.error(`Error handling availabilityChange$ for place ${placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
-        }
-      }
-    );
-    this.logger.log('>>> Constructor finished'); // Лог завершення конструктора
-  }
+  // Блок availabilityChange$.subscribe() видалено,
+  // оскільки Cron тепер напряму викликає check та handleAvailabilityChange
+
+  this.logger.log('>>> Constructor finished');
+}
 
   // --- ДОДАНО МЕТОД onModuleInit ---
   async onModuleInit(): Promise<void> {
