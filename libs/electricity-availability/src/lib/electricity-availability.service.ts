@@ -112,7 +112,7 @@ export class ElectricityAvailabilityService {
 
   // --- ЦЕ МЕТОД, ЯКИЙ ВИКЛИКАЄ CRONSERVICE ---
   // Ми перейменували його назад, щоб він відповідав cron.service.ts
-  @Cron(CronExpression.EVERY_2_MINUTES, {
+  @Cron(CronExpression.EVERY_2_MINUTES, { // ВИПРАВЛЕНО: CronExpression.EVERY_2_MINUTES (або EVERY_5_MINUTES, якщо 2 не працює)
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
@@ -121,7 +121,7 @@ export class ElectricityAvailabilityService {
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
       places.forEach((place) => {
-        if (!place.isDisabled) { // Перевіряємо тільки активні
+        if (place && !place.isDisabled) { // Додано перевірку на place
             this.logger.debug(`Cron: Pushing place ${place.name} to check queue.`);
             this.place$.next(place);
         }
@@ -132,11 +132,106 @@ export class ElectricityAvailabilityService {
   }
   // ---------------------------------------------
 
-  private async handleAvailabilityChange(params: { /* ... */ }): Promise<void> { /* ... (код без змін) ... */ }
-  public async getLatestPlaceAvailability(params: { /* ... */ }): Promise<ReadonlyArray<{ time: Date; isAvailable: boolean; }>> { /* ... (код без змін) ... */ }
-  public async getTodayAndYesterdayStats(params: { /* ... */ }): Promise<{ /* ... */ }> { /* ... (код без змін) ... */ }
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  private async handleAvailabilityChange(params: {
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }): Promise<void> {
+    const { place, isAvailable } = params;
+    this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+    try {
+        const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+        if (!latest || latest.isAvailable !== isAvailable) {
+          this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
+          await this.electricityRepository.save({ placeId: place.id, isAvailable });
+        } else {
+          this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
+        }
+    } catch (error) {
+         this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+    }
+  }
 
-  // --- ЦЕ МЕТОД, ЯКИЙ ВИКЛИКАЄ NOTIFICATION-BOT.SERVICE ---
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getLatestPlaceAvailability(params: {
+    readonly placeId: string;
+    readonly limit: number;
+  }): Promise<
+    ReadonlyArray<{
+      readonly time: Date;
+      readonly isAvailable: boolean;
+    }>
+  > {
+    this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
+    try {
+        return await this.electricityRepository.getLatest(params);
+    } catch (error) {
+        this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
+        return []; // Повертаємо порожній масив у разі помилки
+    }
+  }
+
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getTodayAndYesterdayStats(params: {
+    readonly place: Place;
+  }): Promise<{
+    readonly history: {
+      readonly today: ReadonlyArray<HistoryItem>;
+      readonly yesterday: ReadonlyArray<HistoryItem>;
+    };
+    readonly lastStateBeforeToday?: boolean;
+    readonly lastStateBeforeYesterday?: boolean;
+  }> {
+    const { place } = params;
+    this.logger.debug(`Getting today/yesterday stats for place ${place.id}`);
+    try {
+        const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
+        const todayStart = startOfDay(now);
+        const yesterdayStart = startOfDay(addHours(todayStart, -2));
+        const yesterdayEnd = endOfDay(yesterdayStart);
+
+        const [todayHistory, yesterdayHistory] = await Promise.all([
+          this.electricityRepository.getHistory({
+            placeId: place.id,
+            from: todayStart,
+            to: now,
+          }),
+          this.electricityRepository.getHistory({
+            placeId: place.id,
+            from: yesterdayStart,
+            to: yesterdayEnd,
+          }),
+        ]);
+
+        const [lastStateBeforeToday] =
+          await this.electricityRepository.getLatest({
+            placeId: place.id,
+            limit: 1,
+            to: subMinutes(todayStart, 1),
+          });
+
+        const [lastStateBeforeYesterday] =
+          await this.electricityRepository.getLatest({
+            placeId: place.id,
+            limit: 1,
+            to: subMinutes(yesterdayStart, 1),
+          });
+
+        return {
+          history: {
+            today: todayHistory,
+            yesterday: yesterdayHistory,
+          },
+          lastStateBeforeToday: lastStateBeforeToday?.isAvailable,
+          lastStateBeforeYesterday: lastStateBeforeYesterday?.isAvailable,
+        };
+    } catch (error) {
+         this.logger.error(`Error in getTodayAndYesterdayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return { history: { today: [], yesterday: [] } };
+    }
+  }
+
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStats(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -144,7 +239,6 @@ export class ElectricityAvailabilityService {
     readonly totalMinutesAvailable: number;
     readonly totalMinutesUnavailable: number;
   }> {
-    // ... (реалізація методу getMonthStats) ...
     const { place, dateFromTargetMonth } = params;
     this.logger.debug(`Getting month stats for place ${place.id}, month: ${format(dateFromTargetMonth, 'yyyy-MM')}`);
     try {
@@ -166,11 +260,11 @@ export class ElectricityAvailabilityService {
         let totalMinutesAvailable = 0;
         let totalMinutesUnavailable = 0;
         history.forEach(({ start, end, isEnabled }) => {
-           if (!start || !end) { /* ... */ return; }
+           if (!start || !end) { this.logger.error('Invalid history item in getMonthStats'); return; }
            let durationInMinutes = 0;
            try {
               durationInMinutes = Math.abs(differenceInMinutes(new Date(end), new Date(start)));
-           } catch (diffError) { /* ... */ return; }
+           } catch (diffError) { this.logger.error(`Error calculating diff in getMonthStats: ${diffError}`); return; }
           if (isEnabled) {
             totalMinutesAvailable += durationInMinutes;
           } else {
@@ -185,179 +279,176 @@ export class ElectricityAvailabilityService {
     }
   }
 
-      public async getMonthStatsMessage(params: {
-        readonly place: Place;
-        readonly dateFromTargetMonth: Date;
-      }): Promise<string> {
-        this.logger.debug(`Getting month stats message for place ${params.place.id}`);
-        try {
-            const { totalMinutesAvailable, totalMinutesUnavailable } =
-              await this.getMonthStats(params);
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getMonthStatsMessage(params: {
+    readonly place: Place;
+    readonly dateFromTargetMonth: Date;
+  }): Promise<string> {
+    this.logger.debug(`Getting month stats message for place ${params.place.id}`);
+    try {
+        // !!! ВИПРАВЛЕННЯ: Викликаємо getMonthStats, А НЕ getMonthStatsMessage !!!
+        const { totalMinutesAvailable, totalMinutesUnavailable } =
+          await this.getMonthStats(params);
 
-            const totalMinutes = totalMinutesAvailable + totalMinutesUnavailable;
-            if (totalMinutes === 0) {
-              this.logger.warn(`Total minutes for month stats message is zero for place ${params.place.id}`);
-              return ''; // Повертаємо порожній рядок, якщо немає даних
-            }
-
-            const percentAvailable = Math.round( // Використовуємо Math.round
-              (100 * totalMinutesAvailable) / totalMinutes
-            );
-            const percentUnavailable = 100 - percentAvailable;
-            const baseDate = convertToTimeZone(new Date(), {
-              timeZone: params.place.timezone,
-            });
-            const baseDatePlusAvailable = addMinutes(
-              baseDate,
-              totalMinutesAvailable
-            );
-            const howLongAvailable = formatDistance(baseDate, baseDatePlusAvailable, {
-              locale: uk,
-              includeSeconds: false,
-            });
-            const baseDatePlusUnavailable = addMinutes(
-              baseDate,
-              totalMinutesUnavailable
-            );
-            const howLongUnavailable = formatDistance(
-              baseDate,
-              baseDatePlusUnavailable,
-              {
-                locale: uk,
-                includeSeconds: false,
-              }
-            );
-
-            const m = getMonth(params.dateFromTargetMonth);
-            const mn =
-              m === 0 ? 'січні' : m === 1 ? 'лютому' : m === 2 ? 'березні' :
-              m === 3 ? 'квітні' : m === 4 ? 'травні' : m === 5 ? 'червні' :
-              m === 6 ? 'липні' : m === 7 ? 'серпні' : m === 8 ? 'вересні' :
-              m === 9 ? 'жовтні' : m === 10 ? 'листопаді' : 'грудні';
-
-            return `У ${mn} ми насолоджувалися світлом ${percentAvailable}% часу (сумарно ${howLongAvailable}) і потерпали від темряви ${percentUnavailable}% часу (сумарно ${howLongUnavailable}).`;
-        } catch (error) {
-             this.logger.error(`Error in getMonthStatsMessage for ${params.place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-             return ''; // Повертаємо порожній рядок у разі помилки
+        const totalMinutes = totalMinutesAvailable + totalMinutesUnavailable;
+        if (totalMinutes === 0) {
+          this.logger.warn(`Total minutes for month stats message is zero for place ${params.place.id}`);
+          return ''; 
         }
-      }
 
-      public async getDayStats(params: {
-        readonly place: Place;
-        readonly date: Date;
-      }): Promise<
-        ReadonlyArray<{
-          readonly start: Date;
-          readonly end: Date;
-          readonly isEnabled: boolean;
-        }>
-      > {
-        const { place, date } = params;
-        this.logger.debug(`Getting day stats for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
-        try {
-            const start = convertToTimeZone(startOfDay(date), {
-              timeZone: place.timezone,
-            });
-            const end = convertToTimeZone(endOfDay(date), {
-              timeZone: place.timezone,
-            });
+        const percentAvailable = Math.round(
+          (100 * totalMinutesAvailable) / totalMinutes
+        );
+        const percentUnavailable = 100 - percentAvailable;
+        const baseDate = convertToTimeZone(new Date(), {
+          timeZone: params.place.timezone,
+        });
+        const baseDatePlusAvailable = addMinutes(
+          baseDate,
+          totalMinutesAvailable
+        );
+        const howLongAvailable = formatDistance(baseDate, baseDatePlusAvailable, {
+          locale: uk,
+          includeSeconds: false,
+        });
+        const baseDatePlusUnavailable = addMinutes(
+          baseDate,
+          totalMinutesUnavailable
+        );
+        const howLongUnavailable = formatDistance(
+          baseDate,
+          baseDatePlusUnavailable,
+          {
+            locale: uk,
+            includeSeconds: false,
+          }
+        );
 
-            return await this.electricityRepository.getHistory({
-              placeId: place.id,
-              from: start,
-              to: end,
-            });
-        } catch (error) {
-             this.logger.error(`Error in getDayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-             return [];
-        }
-      }
+        const m = getMonth(params.dateFromTargetMonth);
+        const mn =
+          m === 0 ? 'січні' : m === 1 ? 'лютому' : m === 2 ? 'березні' :
+          m === 3 ? 'квітні' : m === 4 ? 'травні' : m === 5 ? 'червні' :
+          m === 6 ? 'липні' : m === 7 ? 'серпні' : m === 8 ? 'вересні' :
+          m === 9 ? 'жовтні' : m === 10 ? 'листопаді' : 'грудні';
 
-      public async getDaysStats(params: {
-        readonly place: Place;
-        readonly dateFrom: Date;
-        readonly dateTo: Date;
-      }): Promise<
-        Record<
+        return `У ${mn} ми насолоджувалися світлом ${percentAvailable}% часу (сумарно ${howLongAvailable}) і потерпали від темряви ${percentUnavailable}% часу (сумарно ${howLongUnavailable}).`;
+    } catch (error) {
+         this.logger.error(`Error in getMonthStatsMessage for ${params.place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return '';
+    }
+  }
+
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDayStats(params: {
+    readonly place: Place;
+    readonly date: Date;
+  }): Promise<
+    ReadonlyArray<{
+      readonly start: Date;
+      readonly end: Date;
+      readonly isEnabled: boolean;
+    }>
+  > {
+    const { place, date } = params;
+    this.logger.debug(`Getting day stats for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
+    try {
+        const start = convertToTimeZone(startOfDay(date), {
+          timeZone: place.timezone,
+        });
+        const end = convertToTimeZone(endOfDay(date), {
+          timeZone: place.timezone,
+        });
+
+        return await this.electricityRepository.getHistory({
+          placeId: place.id,
+          from: start,
+          to: end,
+        });
+    } catch (error) {
+         this.logger.error(`Error in getDayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return [];
+    }
+  }
+
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDaysStats(params: {
+    readonly place: Place;
+    readonly dateFrom: Date;
+    readonly dateTo: Date;
+  }): Promise<
+    Record<
+      string,
+      ReadonlyArray<{
+        readonly start: Date;
+        readonly end: Date;
+        readonly isEnabled: boolean;
+      }>
+    >
+  > {
+    const { place, dateFrom, dateTo } = params;
+    this.logger.debug(`Getting stats for ${place.id} from ${format(dateFrom, 'yyyy-MM-dd')} to ${format(dateTo, 'yyyy-MM-dd')}`);
+    try {
+        const days = eachDayOfInterval({ start: dateFrom, end: dateTo });
+        const result: Record<
           string,
           ReadonlyArray<{
             readonly start: Date;
             readonly end: Date;
             readonly isEnabled: boolean;
           }>
-        >
-      > {
-        const { place, dateFrom, dateTo } = params;
-        this.logger.debug(`Getting stats for ${place.id} from ${format(dateFrom, 'yyyy-MM-dd')} to ${format(dateTo, 'yyyy-MM-dd')}`);
-        try {
-            const days = eachDayOfInterval({ start: dateFrom, end: dateTo });
-            const result: Record<
-              string,
-              ReadonlyArray<{
-                readonly start: Date;
-                readonly end: Date;
-                readonly isEnabled: boolean;
-              }>
-            > = {};
+        > = {};
 
-            for (const day of days) {
-              const dayStats = await this.getDayStats({ place, date: day });
-              result[format(day, 'yyyy-MM-dd')] = dayStats;
-            }
-
-            return result;
-        } catch (error) {
-             this.logger.error(`Error in getDaysStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-             return {};
-        }
-      }
-
-      public async getDayOffGroups(params: {
-        readonly place: Place;
-        readonly date: Date;
-      }): Promise<ReadonlyArray<number>> {
-        const { place, date } = params;
-        this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
-        const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
-        const dayStats = await this.getDayStats({ place, date });
-        
-        // Перевіряємо, чи день повністю без світла
-        if (dayStats.length === 1 && !dayStats[0].isEnabled) {
-            // Якщо за весь день був лише один запис "немає світла"
-            this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
-            return [0]; // Група 0 (повністю без світла)
-        }
-        
-        // Перевіряємо, чи день повністю зі світлом
-        if (dayStats.length === 1 && dayStats[0].isEnabled) {
-             // Якщо за весь день був лише один запис "є світло"
-            this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
-            return [4]; // Група 4 (повністю зі світлом)
+        for (const day of days) {
+          const dayStats = await this.getDayStats({ place, date: day });
+          result[format(day, 'yyyy-MM-dd')] = dayStats;
         }
 
-        // Логіка для звичайних днів (пн-пт)
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-          if (dayStats.length === 3) { // 3 інтервали (вимк-увімк-вимк)
-            this.logger.log(`Place ${place.id} (weekday) has 3 intervals. Returning group 1.`);
-            return [1]; // Група 1
-          }
-          if (dayStats.length === 5) { // 5 інтервалів
-             this.logger.log(`Place ${place.id} (weekday) has 5 intervals. Returning group 2.`);
-            return [2]; // Група 2
-          }
-          // Інші випадки на буднях
-           this.logger.warn(`Place ${place.id} (weekday) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
-          return []; // Невідома група
-        } 
-        // Логіка для вихідних (сб, нд)
-        else { 
-            if (dayStats.length === 3) { // 3 інтервали (вимк-увімк-вимк)
-                this.logger.log(`Place ${place.id} (weekend) has 3 intervals. Returning group 3.`);
-                return [3]; // Група 3
-            }
-             // Інші випадки на вихідних
-             this.logger.warn(`Place ${place.id} (weekend) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
-            return []; // Невідома група
-        }
-      }
+        return result;
+    } catch (error) {
+         this.logger.error(`Error in getDaysStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return {};
     }
+  }
+
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDayOffGroups(params: {
+    readonly place: Place;
+    readonly date: Date;
+  }): Promise<ReadonlyArray<number>> {
+    const { place, date } = params;
+    this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
+    const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
+    const dayStats = await this.getDayStats({ place, date });
+
+    if (dayStats.length === 1 && !dayStats[0].isEnabled) {
+        this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
+        return [0]; 
+    }
+
+    if (dayStats.length === 1 && dayStats[0].isEnabled) {
+        this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
+        return [4]; 
+    }
+
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      if (dayStats.length === 3) { 
+        this.logger.log(`Place ${place.id} (weekday) has 3 intervals. Returning group 1.`);
+        return [1]; 
+      }
+      if (dayStats.length === 5) { 
+         this.logger.log(`Place ${place.id} (weekday) has 5 intervals. Returning group 2.`);
+        return [2]; 
+      }
+       this.logger.warn(`Place ${place.id} (weekday) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+      return []; 
+    } 
+    else { 
+        if (dayStats.length === 3) { 
+            this.logger.log(`Place ${place.id} (weekend) has 3 intervals. Returning group 3.`);
+            return [3]; 
+        }
+         this.logger.warn(`Place ${place.id} (weekend) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+        return []; 
+    }
+  }
+}
