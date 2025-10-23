@@ -1386,23 +1386,29 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
     return new Promise((r) => setTimeout(r, params.ms));
   }
 
-  private async composeListedBotsMessage(): Promise<string> {
+private async composeListedBotsMessage(): Promise<string> {
     this.logger.log('Composing listed bots message...'); // Лог
-    try { // Додано try...catch
-        const stats = await this.placeRepository.getListedPlaceBotStats();
-        if (stats.length === 0) {
+    try { // try...catch охоплює весь метод
+        const stats = await this.placeRepository.getListedPlaceBotStats(); // stats тепер доступний всередині try
+
+        if (!stats || stats.length === 0) { // Додано перевірку на null/undefined
             this.logger.log('No listed bot stats found.'); // Лог
             return '';
         }
+
         const totalUsers = stats.reduce<number>(
           (res, { numberOfUsers }) => res + Number(numberOfUsers), 0
         );
+
         let res = `Наразі сервісом користуються ${totalUsers} користувачів у ${stats.length} ботах:\n`;
+
         stats.forEach(({ placeName, botName, numberOfUsers }) => {
           res += `@${botName}\n${placeName}: ${numberOfUsers} користувачів\n`;
         });
+
         this.logger.log(`Composed listed bots message: "${res.substring(0,50)}..."`); // Лог результату
         return res + '\n';
+
     } catch (error) {
         this.logger.error(`Error composing listed bots message: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
         return ''; // Повертаємо порожній рядок у разі помилки
