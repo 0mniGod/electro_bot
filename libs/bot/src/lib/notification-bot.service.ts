@@ -4,7 +4,7 @@ import {
 } from '@electrobot/electricity-availability';
 import { UserRepository } from '@electrobot/user-repo';
 // Додаємо OnModuleInit до імпортів з @nestjs/common
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, forwardRef, Inject } from '@nestjs/common';
 import {
   addMinutes,
   addMonths,
@@ -61,6 +61,7 @@ export class NotificationBotService implements OnModuleInit {
   private isRefreshingPlacesAndBots = false;
 
 constructor(
+  @Inject(forwardRef(() => ElectricityAvailabilityService)) // <-- ВИПРАВЛЕНО
   private readonly electricityAvailabilityService: ElectricityAvailabilityService,
   private readonly userRepository: UserRepository,
   private readonly placeRepository: PlaceRepository
