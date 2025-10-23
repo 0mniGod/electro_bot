@@ -4,78 +4,161 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule'; 
 import {
-  addHours, addMinutes, addMonths, differenceInMinutes, eachDayOfInterval,
-  endOfDay, endOfMonth, format, formatDistance, getDay, getMonth,
-  startOfDay, startOfMonth, subMinutes,
+  addHours,
+  addMinutes, 
+  addMonths,
+  differenceInMinutes,
+  eachDayOfInterval,
+  endOfDay,
+  endOfMonth,
+  format,
+  formatDistance, 
+  getDay,
+  getMonth, 
+  startOfDay,
+  startOfMonth,
+  subMinutes,
 } from 'date-fns';
 import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
-import { firstValueFrom, Subject } from 'rxjs'; // Прибираємо timer, zip
+import { firstValueFrom, Subject, timer, zip } from 'rxjs';
+import {
+  distinctUntilChanged,
+  filter,
+  map,
+  switchMap,
+} from 'rxjs/operators';
 import { HistoryItem } from './history-item.type';
 import { ElectricityRepository } from './electricity.repository'; 
 import * as net from 'net'; 
 
+const CHECK_INTERVAL_IN_MINUTES = 2; // Частота перевірки Cron
+const API_KEY = 'demo'; // Використовуємо демонстраційний ключ
+
 @Injectable()
 export class ElectricityAvailabilityService {
-  private readonly logger = new Logger(ElectricityAvailabilityService.name);
+  private readonly logger = new Logger(
+    ElectricityAvailabilityService.name
+  );
+  private readonly place$ = new Subject<Place>();
+  private readonly forceCheck$ = new Subject<Place>();
 
-  // --- ВИДАЛЕНО 'place$' ТА 'forceCheck$' ---
+  public readonly availabilityChange$ = zip(
+    this.place$,
+    timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // Повертаємо числовий інтервал
+  ).pipe(
+    map(([place]) => place),
+    filter((place) => place && !place.isDisabled),
+    switchMap((place) => this.checkWithRetries(place)), // Викликаємо checkWithRetries
+    distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
+    map(({ place, isAvailable }) => {
+      this.handleAvailabilityChange({ place, isAvailable });
+      return { placeId: place.id };
+    })
+  );
 
-  // --- 'availabilityChange$' БІЛЬШЕ НЕ ПОТРІБЕН, ОСКІЛЬКИ CRON ВИКЛИКАЄ ВСЕ НАПРЯМУ ---
-  // public readonly availabilityChange$ = ...
-
-  // --- ЗМІНЕНО: Ми більше не підписуємось на availabilityChange$ ---
   constructor(
     private readonly electricityRepository: ElectricityRepository,
     private readonly placeRepository: PlaceRepository,
     private readonly httpService: HttpService 
   ) {
-    // this.availabilityChange$.subscribe(); // <-- ВИДАЛЕНО
-    this.logger.log('ElectricityAvailabilityService initialized.');
+    this.availabilityChange$.subscribe(
+        (data) => {
+            this.logger.debug(`Availability change processed for placeId: ${data.placeId}`);
+        },
+        (error) => {
+            this.logger.error(`Error in availabilityChange$ stream: ${error}`, error instanceof Error ? error.stack : undefined);
+        }
+    );
   }
 
-  // --- МЕТОД 'check' (ЗАЛИШАЄТЬСЯ БЕЗ ЗМІН, ВИКОРИСТОВУЄ API) ---
+  // --- НОВИЙ ДОПОМІЖНИЙ МЕТОД ---
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ ---
+  private async checkWithRetries(place: Place): Promise<{
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }> {
+    const retries = 3; // 3 спроби
+    const delay = 5000; // 5 секунд між спробами
+
+    for (let i = 1; i <= retries; i++) {
+      this.logger.verbose(`Check attempt ${i}/${retries} for ${place.host}`);
+      const { isAvailable } = await this.check(place);
+      
+      if (isAvailable) {
+        // Успіх
+        return { place, isAvailable: true };
+      }
+      
+      if (i < retries) {
+        this.logger.warn(`Check attempt ${i} failed. Retrying in ${delay / 1000}s...`);
+        await this.sleep(delay);
+      }
+    }
+
+    // Якщо всі 3 спроби не вдалися
+    this.logger.warn(`All ${retries} check attempts failed for ${place.host}. Reporting as UNAVAILABLE.`);
+    return { place, isAvailable: false };
+  }
+  // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
+
+
+  // --- ОНОВЛЕНИЙ МЕТОД CHECK (використовує ViewDNS API) ---
   private async check(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean;
   }> {
     const host = place.host;
-    const port = 80;
-    const url = `https://check-host.net/check-ping?host=${host}&node=de.fra&json=true`; // Використовуємо PING API
+    const url = `https://api.viewdns.info/ping/v2/?host=${host}&apikey=${API_KEY}&output=json`;
 
-    this.logger.verbose(`Starting PING check for ${host} via API (${url})...`);
+    this.logger.verbose(`Starting PING check for ${host} via ViewDNS API...`);
     let isAvailable = false; 
 
     try {
         const response = await firstValueFrom(
             this.httpService.get(url, { 
-                timeout: 10000, 
+                timeout: 15000, // Збільшуємо тайм-аут до 15 секунд
                 headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
             })
         );
+        
+        if (response.data && response.data.response && response.data.response.detail) {
+            // Шукаємо регіон "Europe"
+            const europeRegion = response.data.response.detail.find(
+                (region: any) => region.region === 'Europe'
+            );
 
-        if (response.data && response.data.ok === 1) {
-            const nodes = response.data.nodes;
-            const nodeName = Object.keys(nodes)[0]; 
-            const nodeResult = nodes[nodeName];
-
-            if (nodeResult && Array.isArray(nodeResult) && nodeResult[0] && nodeResult[0][0] === 'OK') {
-                isAvailable = true;
-                this.logger.debug(`PING check successful for ${host}. API response: ${JSON.stringify(nodeResult[0])}`);
+            if (europeRegion && europeRegion.locations && europeRegion.locations.length > 0) {
+                // Перевіряємо, чи ХОЧА Б ОДНА європейська локація має 0% втрат
+                const isAnyEuropeLocationOK = europeRegion.locations.some(
+                    (loc: any) => loc.packet_loss === '0%'
+                );
+                
+                if (isAnyEuropeLocationOK) {
+                    isAvailable = true;
+                    this.logger.debug(`PING check successful for ${host} from Europe.`);
+                } else {
+                    isAvailable = false;
+                    this.logger.warn(`PING check failed (Europe locations reported packet loss) for ${host}.`);
+                }
             } else {
                 isAvailable = false;
-                this.logger.warn(`PING check failed (API reported failure) for ${host}. Response: ${JSON.stringify(nodeResult)}`);
+                this.logger.warn(`PING check failed (No 'Europe' region found in API response) for ${host}.`);
             }
         } else {
              isAvailable = false;
-             this.logger.error(`PING check via API failed (API returned error). Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
+             this.logger.error(`PING check via API failed (Invalid JSON response). Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
         }
     } catch (error: any) {
         isAvailable = false;
-        if (error.code !== 'ECONNABORTED' && (!error.response || error.response.status !== 504)) {
-             this.logger.error(`PING check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
-        } else {
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.response?.status === 504) {
              this.logger.warn(`PING check via API timed out for ${host}. Assuming unavailable.`);
+        } else {
+             this.logger.error(`PING check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
         }
     }
 
@@ -83,26 +166,22 @@ export class ElectricityAvailabilityService {
   }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
-  // --- ПОВНІСТЮ ПЕРЕПИСАНИЙ МЕТОД CRON ---
-  @Cron(CronExpression.EVERY_MINUTE, { // Змінено на EVERY_MINUTE для швидкої перевірки
+  @Cron(CronExpression.EVERY_MINUTE, { // Використовуємо EVERY_MINUTE
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    this.logger.verbose('Cron job "check-electricity-availability" started.');
+    this.logger.verbose('Cron job "check-electricity-availability" (checkAndSave...) started.');
     try {
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
-
-      // Використовуємо Promise.all, щоб перевірити всі місця паралельно
+      
       await Promise.all(places.map(async (place) => {
-        if (place && !place.isDisabled) {
-          this.logger.debug(`Cron: Checking place ${place.name}...`);
-          // НАПРЯМУ викликаємо 'check'
-          const { isAvailable } = await this.check(place);
-          // НАПРЯМУ викликаємо 'handleAvailabilityChange'
-          await this.handleAvailabilityChange({ place, isAvailable });
+        if (place && !place.isDisabled) { 
+            this.logger.debug(`Cron: Checking place ${place.name}...`);
+            const { isAvailable } = await this.checkWithRetries(place); // Викликаємо з повторними спробами
+            await this.handleAvailabilityChange({ place, isAvailable });
         } else if (place) {
-          this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
+            this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
         }
       }));
 
@@ -111,7 +190,6 @@ export class ElectricityAvailabilityService {
        this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
     }
   }
-  // --- КІНЕЦЬ ПЕРЕПИСАНОГО МЕТОДУ CRON ---
 
   private async handleAvailabilityChange(params: {
     readonly place: Place;
@@ -125,7 +203,7 @@ export class ElectricityAvailabilityService {
     this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
     try {
         const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
-        if (!latest || latest.is_available !== isAvailable) { // Виправлено
+        if (!latest || latest.is_available !== isAvailable) { 
           this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
           await this.electricityRepository.save({ placeId: place.id, isAvailable });
         } else {
@@ -135,11 +213,10 @@ export class ElectricityAvailabilityService {
          this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
     }
   }
-
   public async getLatestPlaceAvailability(params: {
     readonly placeId: string;
     readonly limit: number;
-    readonly to?: Date;
+    readonly to?: Date; // Додаємо необов'язковий параметр 'to'
   }): Promise<
     ReadonlyArray<{
       readonly time: Date;
@@ -148,6 +225,7 @@ export class ElectricityAvailabilityService {
   > {
     this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
     try {
+        // Переконуємось, що передаємо 'to' якщо він є
         return await this.electricityRepository.getLatest({
             placeId: params.placeId,
             limit: params.limit,
@@ -155,10 +233,11 @@ export class ElectricityAvailabilityService {
         });
     } catch (error) {
         this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
-        return []; 
+        return []; // Повертаємо порожній масив у разі помилки
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getTodayAndYesterdayStats(params: {
     readonly place: Place;
   }): Promise<{
@@ -178,7 +257,7 @@ export class ElectricityAvailabilityService {
     try {
         const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
         const todayStart = startOfDay(now);
-        const yesterdayStart = startOfDay(addHours(todayStart, -2)); 
+        const yesterdayStart = startOfDay(addHours(todayStart, -2)); // Беремо початок попереднього дня
         const yesterdayEnd = endOfDay(yesterdayStart);
 
         const [todayHistory, yesterdayHistory] = await Promise.all([
@@ -213,8 +292,9 @@ export class ElectricityAvailabilityService {
             today: todayHistory,
             yesterday: yesterdayHistory,
           },
-          lastStateBeforeToday: lastStateBeforeToday?.is_available, // Виправлено
-          lastStateBeforeYesterday: lastStateBeforeYesterday?.is_available, // Виправлено
+          // Виправляємо помилку: база повертає is_available
+          lastStateBeforeToday: lastStateBeforeToday?.is_available, 
+          lastStateBeforeYesterday: lastStateBeforeYesterday?.is_available,
         };
     } catch (error) {
          this.logger.error(`Error in getTodayAndYesterdayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
@@ -222,6 +302,7 @@ export class ElectricityAvailabilityService {
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStats(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -247,7 +328,7 @@ export class ElectricityAvailabilityService {
           from: start,
           to: end,
         });
-        if (!history || !history.length) {
+        if (!history || !history.length) { // Додано перевірку
           this.logger.warn(`No history data found for month stats, place ${place.id}`);
           return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
         }
@@ -272,7 +353,8 @@ export class ElectricityAvailabilityService {
         return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
     }
   }
-
+  
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStatsMessage(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -283,8 +365,9 @@ export class ElectricityAvailabilityService {
     }
     this.logger.debug(`Getting month stats message for place ${params.place.id}`);
     try {
+        // !!! ВИПРАВЛЕННЯ: Викликаємо getMonthStats !!!
         const { totalMinutesAvailable, totalMinutesUnavailable } =
-          await this.getMonthStats(params); // Виклик виправлено
+          await this.getMonthStats(params);
 
         const totalMinutes = totalMinutesAvailable + totalMinutesUnavailable;
         if (totalMinutes === 0) {
@@ -334,6 +417,7 @@ export class ElectricityAvailabilityService {
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getDayStats(params: {
     readonly place: Place;
     readonly date: Date;
@@ -369,6 +453,7 @@ export class ElectricityAvailabilityService {
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getDaysStats(params: {
     readonly place: Place;
     readonly dateFrom: Date;
@@ -412,6 +497,7 @@ export class ElectricityAvailabilityService {
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getDayOffGroups(params: {
     readonly place: Place;
     readonly date: Date;
@@ -424,17 +510,17 @@ export class ElectricityAvailabilityService {
     this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
     const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
     const dayStats = await this.getDayStats({ place, date });
-
-    if (!dayStats) { 
+    
+    if (!dayStats) { // Додано перевірку
         this.logger.error(`getDayStats returned undefined for place ${place.id} in getDayOffGroups`);
         return [];
     }
-
+    
     if (dayStats.length === 1 && !dayStats[0].isEnabled) {
         this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
         return [0]; 
     }
-
+    
     if (dayStats.length === 1 && dayStats[0].isEnabled) {
         this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
         return [4]; 
