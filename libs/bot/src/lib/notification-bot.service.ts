@@ -1388,14 +1388,15 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
 
 private async composeListedBotsMessage(): Promise<string> {
     this.logger.log('Composing listed bots message...'); // Лог
-    try { // try...catch охоплює весь метод
-        const stats = await this.placeRepository.getListedPlaceBotStats(); // stats тепер доступний всередині try
+    try { // try...catch охоплює ВЕСЬ код методу, що використовує stats
+        const stats = await this.placeRepository.getListedPlaceBotStats(); // stats оголошено тут
 
-        if (!stats || stats.length === 0) { // Додано перевірку на null/undefined
+        if (!stats || stats.length === 0) { // Перевірка stats всередині try
             this.logger.log('No listed bot stats found.'); // Лог
             return '';
         }
 
+        // Весь наступний код тепер всередині try і має доступ до stats
         const totalUsers = stats.reduce<number>(
           (res, { numberOfUsers }) => res + Number(numberOfUsers), 0
         );
