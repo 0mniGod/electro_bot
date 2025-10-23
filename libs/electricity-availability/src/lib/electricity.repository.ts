@@ -1,14 +1,14 @@
 import { HistoryItem } from './history-item.type';
 import { Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { InjectModel } from 'nestjs-knex';
+import { InjectKnex } from 'nestjs-knex'; // <-- ВИПРАВЛЕНО: InjectModel -> InjectKnex
 
 const TABLE_NAME = 'availability';
 
 @Injectable()
 export class ElectricityRepository {
   private readonly logger = new Logger(ElectricityRepository.name);
-  constructor(@InjectModel() private readonly knex: Knex) {}
+  constructor(@InjectKnex() private readonly knex: Knex) {} // <-- ВИПРАВЛЕНО: @InjectModel -> @InjectKnex
 
   public async save(params: {
     readonly placeId: string;
@@ -30,7 +30,7 @@ export class ElectricityRepository {
   }): Promise<
     ReadonlyArray<{
       readonly time: Date;
-      readonly isAvailable: boolean;
+      readonly is_available: boolean; // <-- ВИПРАВЛЕНО: isAvailable -> is_available
     }>
   > {
     const { placeId, limit, to } = params;
@@ -52,7 +52,7 @@ export class ElectricityRepository {
 
     return res.map((r) => ({
       time: r.created_at,
-      isAvailable: r.is_available,
+      is_available: r.is_available, // <-- ВИПРАВЛЕНО: isAvailable -> is_available
     }));
   }
 
@@ -64,10 +64,8 @@ export class ElectricityRepository {
     const { placeId, from, to } = params;
     this.logger.debug(`Getting history for place ${placeId} from ${from} to ${to}`);
 
-    // Знаходимо останній запис ПЕРЕД початком інтервалу
     const [lastStateBefore] = await this.getLatest({ placeId, limit: 1, to: from });
 
-    // Знаходимо всі записи ВСЕРЕДИНІ інтервалу
     const history: Array<{
       created_at: Date;
       is_available: boolean;
@@ -80,27 +78,25 @@ export class ElectricityRepository {
 
     if (!history.length && !lastStateBefore) {
         this.logger.warn(`No history found for place ${placeId} in time range.`);
-        return []; // Немає даних
+        return [];
     }
 
-    // Визначаємо початковий стан
-    const startState = lastStateBefore ? lastStateBefore.isAvailable : history[0].isAvailable;
+    // ВИПРАВЛЕНО: isAvailable -> is_available
+    const startState = lastStateBefore ? lastStateBefore.is_available : history[0].is_available;
     const result: HistoryItem[] = [];
 
-    // Додаємо початковий елемент
     result.push({
         start: from,
         end: history.length ? history[0].created_at : to,
         isEnabled: startState,
     });
 
-    // Обробляємо елементи всередині інтервалу
     history.forEach((item, i) => {
         const nextItem = history[i + 1];
         result.push({
             start: item.created_at,
             end: nextItem ? nextItem.created_at : to,
-            isEnabled: item.is_available,
+            isEnabled: item.is_available, // ВИПРАВЛЕНО: isAvailable -> is_available
         });
     });
 
