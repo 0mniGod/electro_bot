@@ -62,12 +62,10 @@ export class NotificationBotService {
     private readonly userRepository: UserRepository,
     private readonly placeRepository: PlaceRepository
   ) {
-    this.logger.log('[INIT] NotificationBotService constructor called.');
+    this.logger.log('Initializing NotificationBotService...');
     this.refreshAllPlacesAndBots().then(() => {
       this.logger.log(
-        `[INIT] Initial refresh complete. Total bots in memory: ${Object.keys(
-          this.placeBots
-        ).length}`
+        `Initial refresh complete. Loaded ${Object.keys(this.places).length} places and ${Object.keys(this.placeBots).length} bots.`
       );
     });
 
@@ -76,7 +74,9 @@ export class NotificationBotService {
 
     this.electricityAvailabilityService.availabilityChange$.subscribe(
       ({ placeId }) => {
-        this.logger.verbose(`[EVENT] Availability changed for place ${placeId}`);
+        this.logger.log(
+          `[Subscription] Received electricity availability change for ${placeId}`
+        );
         this.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({
           placeId,
         });
@@ -84,89 +84,179 @@ export class NotificationBotService {
     );
   }
 
+  public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
+    this.logger.log('notifyAllPlacesAboutPreviousMonthStats started');
+    const allPlaces = Object.values(this.places);
+
+    for (const place of allPlaces) {
+      if (place.isDisabled || place.disableMonthlyStats) {
+        this.logger.verbose(`Skipping monthly notification for ${place.name}`);
+        continue;
+      }
+      await this.notifyAllPlaceSubscribersAboutPreviousMonthStats({ place });
+    }
+    this.logger.log('notifyAllPlacesAboutPreviousMonthStats finished');
+  }
+
+  // --- handleStartCommand ---
+  private async handleStartCommand(params: {
+    readonly msg: TelegramBot.Message;
+    readonly place: Place;
+    readonly bot: Bot;
+    readonly telegramBot: TelegramBot;
+  }): Promise<void> {
+    const { msg, place, telegramBot } = params;
+    this.logger.log(`[handleStartCommand] Called for place ${place.name}`);
+
+    if (this.isGroup({ chatId: msg.chat.id })) {
+      this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
+      return;
+    }
+
+    if (place.isDisabled) {
+      await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
+      return;
+    }
+
+    await this.userRepository.saveUserAction({
+      placeId: place.id,
+      chatId: msg.chat.id,
+      command: 'start',
+    });
+
+    const listedBotsMessage = await this.composeListedBotsMessage();
+
+    await telegramBot.sendMessage(
+      msg.chat.id,
+      RESP_START({ place: place.name, listedBotsMessage }),
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  // --- handleCurrentCommand ---
+  private async handleCurrentCommand(params: {
+    readonly msg: TelegramBot.Message;
+    readonly place: Place;
+    readonly bot: Bot;
+    readonly telegramBot: TelegramBot;
+  }): Promise<void> {
+    const { msg, place, telegramBot } = params;
+    this.logger.log(`[handleCurrentCommand] Called for ${place.name}`);
+
+    if (this.isGroup({ chatId: msg.chat.id })) return;
+
+    if (place.isDisabled) {
+      await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
+      return;
+    }
+
+    const [latest] =
+      await this.electricityAvailabilityService.getLatestPlaceAvailability({
+        placeId: place.id,
+        limit: 1,
+      });
+
+    if (!latest) {
+      this.logger.warn(`No latest availability found for ${place.name}`);
+      await telegramBot.sendMessage(
+        msg.chat.id,
+        RESP_NO_CURRENT_INFO({ place: place.name }),
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    const changeTime = convertToTimeZone(latest.time, {
+      timeZone: place.timezone,
+    });
+    const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
+    const when = format(changeTime, 'd MMMM о HH:mm', { locale: uk });
+    const howLong = formatDistance(now, changeTime, { locale: uk });
+
+    const response = latest.isAvailable
+      ? RESP_CURRENTLY_AVAILABLE({
+          when,
+          howLong,
+          place: place.name,
+          scheduleDisableMoment: undefined,
+          schedulePossibleDisableMoment: undefined,
+        })
+      : RESP_CURRENTLY_UNAVAILABLE({
+          when,
+          howLong,
+          place: place.name,
+          scheduleEnableMoment: undefined,
+          schedulePossibleEnableMoment: undefined,
+        });
+
+    await telegramBot.sendMessage(msg.chat.id, response, { parse_mode: 'HTML' });
+  }
+
+  // --- refreshAllPlacesAndBots ---
   private async refreshAllPlacesAndBots(): Promise<void> {
     if (this.isRefreshingPlacesAndBots) {
-      this.logger.warn('[REFRESH] Already running, skipping parallel call.');
+      this.logger.warn('refreshAllPlacesAndBots skipped (already running)');
       return;
     }
 
     this.isRefreshingPlacesAndBots = true;
-    this.logger.log('[REFRESH] Starting refreshAllPlacesAndBots...');
+    this.logger.log('refreshAllPlacesAndBots started');
+
     try {
       const places = await this.placeRepository.getAllPlaces();
-      this.logger.log(`[REFRESH] Loaded ${places.length} places from DB.`);
-
-      this.places = places.reduce<Record<string, Place>>(
-        (res, place) => ({ ...res, [place.id]: place }),
-        {}
-      );
-
       const placeBots = await this.placeRepository.getAllPlaceBots();
-      this.logger.log(`[REFRESH] Loaded ${placeBots.length} bot configs from DB.`);
-      this.logger.debug(`[REFRESH] placeBots IDs: ${JSON.stringify(placeBots.map(b => b.placeId))}`);
 
-      let createdBots = 0;
+      this.logger.log(`Fetched ${places.length} places from DB`);
+      this.logger.log(`Fetched ${placeBots.length} bot configs from DB`);
 
-      placeBots.forEach((bot) => {
-        if (!bot.isEnabled) {
-          this.logger.warn(`[REFRESH] Bot ${bot.botName} (${bot.placeId}) disabled, skipping.`);
-          return;
-        }
+      this.places = places.reduce<Record<string, Place>>((res, place) => {
+        res[place.id] = place;
+        return res;
+      }, {});
 
+      for (const bot of placeBots) {
+        if (!bot.isEnabled) continue;
         const place = this.places[bot.placeId];
         if (!place) {
-          this.logger.error(`[REFRESH] Place ${bot.placeId} not found — cannot create bot.`);
-          return;
+          this.logger.error(
+            `Bot ${bot.botName} references missing place ${bot.placeId}`
+          );
+          continue;
         }
 
-        if (this.placeBots[bot.placeId]) {
-          this.logger.log(`[REFRESH] Bot already exists for ${place.name}, updating metadata.`);
-          this.placeBots[bot.placeId] = {
-            ...this.placeBots[bot.placeId],
-            bot,
-          };
-        } else {
-          this.logger.log(`[REFRESH] Creating new bot for ${place.name} (${bot.placeId})`);
+        if (!this.placeBots[bot.placeId]) {
           this.createBot({ place, bot });
-          createdBots++;
+        } else {
+          this.logger.verbose(
+            `Bot already exists for ${place.name}, skipping creation`
+          );
         }
-      });
-
-      this.logger.log(
-        `[REFRESH] Completed. Active bot instances: ${Object.keys(this.placeBots).length}, created this round: ${createdBots}`
-      );
+      }
     } catch (e) {
-      this.logger.error(`[REFRESH] Failed with error: ${e instanceof Error ? e.message : e}`);
+      this.logger.error(`refreshAllPlacesAndBots failed: ${e?.message}`, e);
     } finally {
       this.isRefreshingPlacesAndBots = false;
+      this.logger.log(
+        `refreshAllPlacesAndBots finished. Total bots: ${Object.keys(
+          this.placeBots
+        ).length}`
+      );
     }
   }
 
+  // --- createBot ---
   private createBot(params: { readonly place: Place; readonly bot: Bot }): void {
     const { place, bot } = params;
-
     this.logger.log(
-      `[BOT_INIT] Creating Telegram bot for ${place.name} (${place.id}), token prefix: ${bot.token.substring(
-        0,
-        8
-      )}...`
+      `[createBot] Creating bot ${bot.botName} for place ${place.name}`
     );
 
     try {
       const telegramBot = new TelegramBot(bot.token);
-
       this.placeBots[bot.placeId] = { bot, telegramBot };
 
-      this.logger.log(
-        `[BOT_INIT] Successfully created bot for ${place.name}. Total bots in memory: ${Object.keys(
-          this.placeBots
-        ).length}`
-      );
-
       telegramBot.on('polling_error', (error) => {
-        this.logger.error(
-          `[BOT_INIT] Polling error for ${place.name}/${bot.botName}: ${error}`
-        );
+        this.logger.error(`${place.name}/${bot.botName} polling error: ${error}`);
       });
 
       telegramBot.onText(/\/start/, (msg) =>
@@ -175,120 +265,42 @@ export class NotificationBotService {
       telegramBot.onText(/\/current/, (msg) =>
         this.handleCurrentCommand({ msg, place, bot, telegramBot })
       );
-      telegramBot.onText(/\/subscribe/, (msg) =>
-        this.handleSubscribeCommand({ msg, place, bot, telegramBot })
+
+      this.logger.log(
+        `[createBot] Bot ${bot.botName} initialized successfully for ${place.name}`
       );
-      telegramBot.onText(/\/unsubscribe/, (msg) =>
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot })
-      );
-      telegramBot.onText(/\/stop/, (msg) =>
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot })
-      );
-      telegramBot.onText(/\/stats/, (msg) =>
-        this.handleStatsCommand({ msg, place, bot, telegramBot })
-      );
-      telegramBot.onText(/\/about/, (msg) =>
-        this.handleAboutCommand({ msg, place, bot, telegramBot })
-      );
-    } catch (e) {
-      this.logger.error(
-        `[BOT_INIT] Failed to create Telegram bot for ${place.name}: ${e instanceof Error ? e.message : e}`
-      );
+    } catch (err) {
+      this.logger.error(`[createBot] Failed for ${place.name}: ${err.message}`);
     }
   }
 
+  private async sleep(params: { readonly ms: number }): Promise<void> {
+    return new Promise((r) => setTimeout(r, params.ms));
+  }
+
   public getMainTelegramBotInstance(): TelegramBot | undefined {
+    const keys = Object.keys(this.placeBots);
     this.logger.log(
-      `[getMainTelegramBotInstance] called. Current bot keys: ${JSON.stringify(
-        Object.keys(this.placeBots)
+      `[getMainTelegramBotInstance] called. Existing bot keys: ${JSON.stringify(
+        keys
       )}`
     );
-
-    const allEntries = Object.entries(this.placeBots).map(([id, entry]) => ({
-      id,
-      enabled: entry.bot.isEnabled,
-      name: entry.bot.botName,
-    }));
-    this.logger.debug(
-      `[getMainTelegramBotInstance] Entries status: ${JSON.stringify(allEntries)}`
-    );
-
     const activeBotEntry = Object.values(this.placeBots).find(
       (entry) => entry.bot.isEnabled
     );
 
     if (activeBotEntry) {
       this.logger.log(
-        `[getMainTelegramBotInstance] Returning bot ${activeBotEntry.bot.botName}`
+        `[getMainTelegramBotInstance] Returning active bot for ${
+          activeBotEntry.bot.botName
+        }`
       );
       return activeBotEntry.telegramBot;
     } else {
       this.logger.warn(
-        '[getMainTelegramBotInstance] No active bot instance found — returning undefined.'
+        '[getMainTelegramBotInstance] No active bot instance found!'
       );
       return undefined;
     }
-  }
-
-  private async notifyAllPlaceSubscribers(params: {
-    readonly place: Place;
-    readonly msg: string;
-  }): Promise<void> {
-    const { place, msg } = params;
-    this.logger.log(
-      `[NOTIFY] Preparing to notify subscribers for ${place.name} (${place.id})`
-    );
-
-    const botEntry = this.placeBots[place.id];
-    if (!botEntry) {
-      this.logger.warn(
-        `[NOTIFY] No bot instance found for ${place.name}, skipping.`
-      );
-      return;
-    }
-
-    if (!botEntry.bot.isEnabled) {
-      this.logger.warn(
-        `[NOTIFY] Bot for ${place.name} disabled, skipping notifications.`
-      );
-      return;
-    }
-
-    const subscribers = await this.userRepository.getAllPlaceUserSubscriptions({
-      placeId: place.id,
-    });
-
-    this.logger.log(
-      `[NOTIFY] Sending message to ${subscribers.length} subscribers of ${place.name}`
-    );
-
-    for (const subscriber of subscribers) {
-      const { chatId } = subscriber;
-      await this.sleep({ ms: BULK_NOTIFICATION_DELAY_IN_MS });
-      botEntry.telegramBot
-        .sendMessage(chatId, msg, { parse_mode: 'HTML' })
-        .catch((e: any) => {
-          if (
-            e?.code === 'ETELEGRAM' &&
-            e?.message?.includes('403') &&
-            (e.message?.includes('blocked by the user') ||
-              e.message?.includes('user is deactivated'))
-          ) {
-            this.logger.warn(
-              `[NOTIFY] ${chatId} blocked bot ${botEntry.bot.botName}. Removing subscription.`
-            );
-            this.userRepository.removeUserSubscription({
-              placeId: place.id,
-              chatId,
-            });
-          } else {
-            this.logger.error(
-              `[NOTIFY] Failed to send to ${chatId}: ${JSON.stringify(e)}`
-            );
-          }
-        });
-    }
-
-    this.logger.log(`[NOTIFY] Finished notifying ${place.name}`);
   }
 }
