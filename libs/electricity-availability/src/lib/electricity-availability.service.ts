@@ -2,7 +2,8 @@ import { Place } from '@electrobot/domain';
 import { PlaceRepository } from '@electrobot/place-repo';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule'; 
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { NotificationBotService } from '@electrobot/bot';
 import {
   addHours,
   addMinutes, 
