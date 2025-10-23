@@ -530,7 +530,6 @@ export class NotificationBotService implements OnModuleInit {
           this.logger.error(`Error in handleStatsCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
        }
   }
-
   private async composePlaceMonthStatsMessage(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -633,6 +632,7 @@ export class NotificationBotService implements OnModuleInit {
           this.logger.error(`Error in handleAboutCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
        }
   }
+
   private async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
     readonly placeId: string;
   }): Promise<void> {
@@ -957,327 +957,6 @@ export class NotificationBotService implements OnModuleInit {
       }
 
       this.placeBots = newPlaceBots; // Оновлюємо кеш ботів тільки активними/оновленими інстансами
-      this.logger.log(`Finished refreshing bots state. Active instances in this.placeBots: ${Object.keys(this.placeBots).length}`);
-
-    } catch (e) {
-      this.logger.error(`>>> ERROR inside refreshAllPlacesAndBots during DB fetch or processing: ${e}`, e instanceof Error ? e.stack : undefined);
-    } finally {
-      this.isRefreshingPlacesAndBots = false;
-      this.logger.log('>>> EXITING refreshAllPlacesAndBots()'); // Лог виходу з методу
-    }
-  }
-
-  // Змінено: createBot тепер повертає створений екземпляр або undefined
-  private createBot(params: {
-    readonly place: Place;
-    readonly bot: Bot;
-  }): TelegramBot | undefined {
-    const { place, bot } = params;
-    try {
-      this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`);
-      if (!bot.token) {
-          this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
-          return undefined;
-      }
-      // Створюємо без polling
-      const telegramBot = new TelegramBot(bot.token);
-      this.logger.log(`TelegramBot instance created for place ${place.id}. Attaching listeners...`); // Лог
-
-      // Обробники подій
-      telegramBot.on('polling_error', (error) => { // Все ще корисно для діагностики внутрішніх помилок
-         this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
-      });
-      telegramBot.on('webhook_error', (error) => { // Додаємо обробник помилок вебхука
-        this.logger.error(`${place.name}/${bot.botName} webhook_error: ${error.code} ${error.message ? error.message : JSON.stringify(error)}`); // Додано JSON.stringify
-      });
-      telegramBot.on('error', (error) => { // Загальний обробник помилок
-        this.logger.error(`${place.name}/${bot.botName} general error: ${error}`, error instanceof Error ? error.stack : undefined); // Додано stack
-      });
-
-      // Обробники команд
-      // Додаємо try...catch навколо кожного виклику handle... для кращої діагностики
-      telegramBot.onText(/\/start/, (msg) => {
-        this.logger.debug(`Received /start for place ${place.id} via onText`);
-        this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/current/, (msg) => {
-        this.logger.debug(`Received /current for place ${place.id} via onText`);
-        this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/subscribe/, (msg) => {
-        this.logger.debug(`Received /subscribe for place ${place.id} via onText`);
-        this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/unsubscribe/, (msg) => {
-        this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`);
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/stop/, (msg) => {
-        this.logger.debug(`Received /stop for place ${place.id} via onText`);
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/stats/, (msg) => {
-        this.logger.debug(`Received /stats for place ${place.id} via onText`);
-        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err.stack));
-      });
-      telegramBot.onText(/\/about/, (msg) => {
-        this.logger.debug(`Received /about for place ${place.id} via onText`);
-        this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err.stack));
-      });
-
-      this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`);
-      return telegramBot; // Повертаємо створений екземпляр
-    } catch (error) {
-       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-       return undefined; // Повертаємо undefined у разі помилки
-    }
-  }
-
-  // Метод для отримання інстансу бота
-  public getMainTelegramBotInstance(): TelegramBot | undefined {
-    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
-    // Шукаємо перший активний бот (можна вдосконалити, якщо ботів багато)
-    const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
-    if (activeBotEntry) {
-      this.logger.log(`Found active bot instance for placeId: ${activeBotEntry.bot.placeId}`);
-      return activeBotEntry.telegramBot;
-    } else {
-      this.logger.warn('No active bot instance found in this.placeBots during getMainTelegramBotInstance');
-      return undefined;
-    }
-  }
-
-  private async notifyBotDisabled(params: {
-    readonly chatId: number;
-    readonly telegramBot: TelegramBot;
-  }): Promise<void> {
-    const { chatId, telegramBot } = params;
-    try { // Додано try...catch
-        this.logger.log(`Sending MSG_DISABLED to chat ${chatId}`); // Лог
-        await telegramBot.sendMessage(chatId, MSG_DISABLED, { parse_mode: 'HTML' });
-    } catch (error) {
-        this.logger.error(`Error sending MSG_DISABLED to chat ${chatId}: ${error}`); // Лог помилки
-    }
-  }
-
-  private async sleep(params: { readonly ms: number }): Promise<void> {
-    // this.logger.debug(`Sleeping for ${params.ms} ms`); // Розкоментуйте для дуже детального логування
-    return new Promise((r) => setTimeout(r, params.ms));
-  }
-} // <-- Кінець класу NotificationBotService
-private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
-    readonly place: Place;
-  }): Promise<void> {
-    const { place } = params;
-    this.logger.log(`Starting notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}`); // Лог
-    if (place.isDisabled) {
-      this.logger.log(`Place ${place.id} is disabled, skipping monthly stats.`); // Лог
-      return;
-    }
-    try { // Додано try...catch
-        const dateFromPreviousMonth = addMonths(new Date(), -1);
-        const statsMessage = await this.composePlaceMonthStatsMessage({ place, dateFromTargetMonth: dateFromPreviousMonth });
-        if (!statsMessage) {
-          this.logger.log(
-            `No monthly stats message generated for ${place.name} - skipping subscriber notification`
-          );
-          return;
-        }
-        const response = RESP_PREVIOUS_MONTH_SUMMARY({ statsMessage });
-        // --- ДОДАНО ЛОГУВАННЯ ---
-        this.logger.log(`Prepared monthly stats notification for place ${place.id}: "${response.substring(0, 50)}..."`);
-        // -----------------------
-        this.notifyAllPlaceSubscribers({ place, msg: response });
-    } catch (error) {
-        this.logger.error(`Error in notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-    }
-  }
-
-  private async notifyAllPlaceSubscribers(params: {
-    readonly place: Place;
-    readonly msg: string;
-  }): Promise<void> {
-    const { place, msg } = params;
-    this.logger.log(`Starting notifyAllPlaceSubscribers for place ${place.id}`); // Лог
-    const botEntry = this.placeBots[place.id];
-    if (!botEntry) {
-      this.logger.warn(
-        `No bot instance found in cache for ${place.name} during notifyAllPlaceSubscribers` // Уточнено лог
-      );
-      return;
-    }
-    if (!botEntry.bot.isEnabled) {
-      this.logger.log(
-        `Bot config for ${place.name} is disabled - skipping subscriber notification` // Уточнено лог
-      );
-      return;
-    }
-    let subscribers: Array<{ chatId: number | string }> = []; // Оголошуємо заздалегідь, тип може бути string або number
-    try { // Додано try...catch для отримання підписників
-      subscribers = await this.userRepository.getAllPlaceUserSubscriptions({ placeId: place.id });
-      this.logger.log(`Attempting to notify ${subscribers.length} subscribers of ${place.name}`); // Лог кількості
-    } catch (error) {
-       this.logger.error(`Error fetching subscribers for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-       return; // Виходимо, якщо не можемо отримати підписників
-    }
-
-    // Додаємо лічильники для статистики
-    let successCount = 0;
-    let blockedCount = 0;
-    let errorCount = 0;
-
-    for (const subscriber of subscribers) {
-      // Переконуємось, що chatId - це число
-      const chatId = Number(subscriber.chatId);
-      if (isNaN(chatId)) {
-          this.logger.error(`Invalid chatId found for place ${place.id}: ${subscriber.chatId}`);
-          continue;
-      }
-
-      try { // Додано try...catch для кожного відправлення
-        await this.sleep({ ms: BULK_NOTIFICATION_DELAY_IN_MS });
-        await botEntry.telegramBot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
-        // this.logger.debug(`Sent notification to chat ${chatId} for place ${place.id}`); // Лог відправки (закоментовано, щоб зменшити шум)
-        successCount++;
-      } catch (e: any) {
-        if (
-          e?.code === 'ETELEGRAM' &&
-          e?.message?.includes('403') &&
-          (e.message?.includes('blocked by the user') || e.message?.includes('user is deactivated'))
-        ) {
-          this.logger.log(`User ${chatId} blocked bot for place ${place.id}. Removing subscription.`); // Лог блокування
-          blockedCount++;
-          try { // Додано try...catch для видалення підписки
-             await this.userRepository.removeUserSubscription({ placeId: place.id, chatId });
-          } catch (removeError) {
-             this.logger.error(`Error removing subscription for blocked user ${chatId}, place ${place.id}: ${removeError}`); // Лог помилки видалення
-          }
-        } else {
-          errorCount++;
-          this.logger.error(`Failed to send notification to chat ${chatId} for place ${place.id}: ${JSON.stringify(e)}`, e instanceof Error ? e.stack : undefined); // Лог іншої помилки відправки
-        }
-      }
-    }
-    this.logger.log(
-      `Finished notifying subscribers of ${place.name}. Success: ${successCount}, Blocked: ${blockedCount}, Errors: ${errorCount}` // Додано статистику
-    );
-  }
-
-  private isGroup(params: { readonly chatId: number }): boolean {
-    const result = params.chatId < 0;
-    // this.logger.debug(`isGroup check for chatId ${params.chatId}: ${result}`); // Розкоментуйте для детального логування
-    return result;
-  }
-
-  private async refreshAllPlacesAndBots(): Promise<void> {
-    this.logger.log('>>> ENTERING refreshAllPlacesAndBots()'); // Лог входу в метод
-    if (this.isRefreshingPlacesAndBots) {
-      this.logger.warn('Refresh already in progress, skipping.');
-      return;
-    }
-
-    this.logger.log('Starting refreshAllPlacesAndBots...');
-    this.isRefreshingPlacesAndBots = true;
-    let loadedPlaces: Place[] = []; // Змінна для зберігання завантажених місць
-    let loadedBots: Bot[] = []; // Змінна для зберігання завантажених ботів
-    try {
-      this.logger.log('Attempting to load places from DB...'); // Лог
-      loadedPlaces = await this.placeRepository.getAllPlaces();
-      this.logger.log(`Loaded ${loadedPlaces.length} places from DB. IDs: ${JSON.stringify(loadedPlaces.map(p => p.id))}`);
-      this.places = loadedPlaces.reduce<Record<string, Place>>(
-        (res, place) => ({ ...res, [place.id]: place }),
-        {}
-      );
-
-      this.logger.log('Attempting to load bot configurations from DB...'); // Лог
-      loadedBots = await this.placeRepository.getAllPlaceBots();
-      this.logger.log(`Loaded ${loadedBots.length} bots configurations from DB. place_ids: ${JSON.stringify(loadedBots.map(b => b.placeId))}`);
-
-      const newPlaceBots: typeof this.placeBots = {};
-      const activePlaceIds = new Set<string>(); // Зберігатимемо ID активних ботів
-
-      // Спочатку обробляємо конфігурації
-      for (const botConfig of loadedBots) {
-        this.logger.log(`Processing bot config for place_id: ${botConfig.placeId}, isEnabled: ${botConfig.isEnabled}, bot_name: ${botConfig.botName}`); // Лог для кожного бота
-        if (!botConfig.isEnabled) {
-           this.logger.log(`Bot for place ${botConfig.placeId} is disabled in DB, skipping creation/update.`);
-           continue; // Переходимо до наступної конфігурації
-        }
-
-        // Якщо бот активний, додаємо його ID до сету
-        activePlaceIds.add(botConfig.placeId);
-
-        const place = this.places[botConfig.placeId];
-        if (!place) {
-          this.logger.error(
-            `Place ${botConfig.placeId} (from bots table) not found in loaded places cache - cannot process bot config` // Уточнено лог
-          );
-          continue;
-        }
-
-        const existingEntry = this.placeBots[botConfig.placeId];
-        if (existingEntry) {
-            // Бот вже існує в кеші
-            if(existingEntry.bot.token !== botConfig.token) {
-                // Токен змінився - потрібно перестворити інстанс
-                this.logger.warn(`Token changed for place ${place.id}. Recreating bot instance.`);
-                try {
-                   // Спробуємо зупинити старий інстанс (може не працювати без polling)
-                   if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).stopPolling === 'function') {
-                      await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
-                   }
-                   if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).close === 'function') {
-                       await (existingEntry.telegramBot as any).close().catch(closeError => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
-                   }
-                   this.logger.log(`Stopped/closed previous instance for place ${place.id} due to token change.`);
-                } catch (stopError) {
-                   this.logger.error(`Error stopping/closing previous instance for place ${place.id}: ${stopError}`);
-                }
-                // Створюємо новий інстанс
-                const createdInstance = this.createBot({ place, bot: botConfig });
-                 if (createdInstance) {
-                   newPlaceBots[botConfig.placeId] = { bot: botConfig, telegramBot: createdInstance };
-                 } else {
-                   this.logger.error(`Re-creation failed for place ${place.id} after token change.`);
-                 }
-            } else {
-              // Токен не змінився, просто оновлюємо конфігурацію, зберігаючи старий інстанс
-              newPlaceBots[botConfig.placeId] = { ...existingEntry, bot: botConfig };
-              this.logger.log(`Bot instance for place ${place.id} already exists, config updated (token unchanged).`);
-            }
-        } else {
-          // Якщо бота немає в кеші - створюємо новий
-          this.logger.log(`Creating NEW bot instance for place ${place.id}`);
-          const createdInstance = this.createBot({ place, bot: botConfig });
-          if (createdInstance) {
-             newPlaceBots[botConfig.placeId] = { bot: botConfig, telegramBot: createdInstance };
-          } else {
-             this.logger.error(`createBot returned undefined for place ${place.id}. Instance NOT created.`);
-          }
-        }
-      } // кінець циклу for (const botConfig of loadedBots)
-
-      // Тепер зупиняємо та видаляємо інстанси, яких НЕМАЄ в активних конфігураціях
-      for (const placeId in this.placeBots) {
-          if (!activePlaceIds.has(placeId)) { // Якщо ID зі старого кешу немає в новому списку активних
-              this.logger.warn(`Bot for place ${placeId} seems removed from DB or disabled. Stopping and removing instance.`);
-              const instanceToStop = this.placeBots[placeId]?.telegramBot;
-               try {
-                   if (instanceToStop && typeof (instanceToStop as any).stopPolling === 'function') {
-                      await (instanceToStop as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
-                   }
-                   if (instanceToStop && typeof (instanceToStop as any).close === 'function') {
-                      await (instanceToStop as any).close().catch(closeError => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
-                   }
-                   this.logger.log(`Stopped/closed removed/disabled instance for place ${placeId}`);
-                } catch (stopError) {
-                   this.logger.error(`Error stopping/closing removed/disabled instance for place ${placeId}: ${stopError}`);
-                }
-                // Не додаємо його до newPlaceBots, таким чином видаляючи з кешу
-          }
-      }
-
-      this.placeBots = newPlaceBots; // Оновлюємо кеш ботів тільки активними/оновленими інстансами
       this.logger.log(`Finished processing bots configurations. Active instances in this.placeBots: ${Object.keys(this.placeBots).length}`);
 
     } catch (e) {
@@ -1287,7 +966,6 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
       this.logger.log('>>> EXITING refreshAllPlacesAndBots()'); // Лог виходу з методу
     }
   }
-
   // Змінено: createBot тепер повертає створений екземпляр або undefined
   private createBot(params: {
     readonly place: Place;
@@ -1295,7 +973,7 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
   }): TelegramBot | undefined {
     const { place, bot } = params;
     try {
-      this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`);
+      this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`); // Лог
       if (!bot.token) {
           this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
           return undefined;
@@ -1318,49 +996,49 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
       // Обробники команд
       // Додаємо try...catch навколо кожного виклику handle... для кращої діагностики
       telegramBot.onText(/\/start/, (msg) => {
-        this.logger.debug(`Received /start for place ${place.id} via onText`);
+        this.logger.debug(`Received /start for place ${place.id} via onText`); // Лог
         this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err.stack));
       });
       telegramBot.onText(/\/current/, (msg) => {
-        this.logger.debug(`Received /current for place ${place.id} via onText`);
+        this.logger.debug(`Received /current for place ${place.id} via onText`); // Лог
         this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err.stack));
       });
       telegramBot.onText(/\/subscribe/, (msg) => {
-        this.logger.debug(`Received /subscribe for place ${place.id} via onText`);
+        this.logger.debug(`Received /subscribe for place ${place.id} via onText`); // Лог
         this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err.stack));
       });
       telegramBot.onText(/\/unsubscribe/, (msg) => {
-        this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`);
+        this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`); // Лог
         this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err.stack));
       });
       telegramBot.onText(/\/stop/, (msg) => {
-        this.logger.debug(`Received /stop for place ${place.id} via onText`);
+        this.logger.debug(`Received /stop for place ${place.id} via onText`); // Лог
         this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err.stack));
       });
       telegramBot.onText(/\/stats/, (msg) => {
-        this.logger.debug(`Received /stats for place ${place.id} via onText`);
+        this.logger.debug(`Received /stats for place ${place.id} via onText`); // Лог
         this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err.stack));
       });
       telegramBot.onText(/\/about/, (msg) => {
-        this.logger.debug(`Received /about for place ${place.id} via onText`);
+        this.logger.debug(`Received /about for place ${place.id} via onText`); // Лог
         this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err.stack));
       });
 
-      this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`);
+      this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
     } catch (error) {
-       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
        return undefined; // Повертаємо undefined у разі помилки
     }
   }
 
   // Метод для отримання інстансу бота
   public getMainTelegramBotInstance(): TelegramBot | undefined {
-    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
+    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`); // Лог
     // Шукаємо перший активний бот (можна вдосконалити, якщо ботів багато)
     const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
     if (activeBotEntry) {
-      this.logger.log(`Found active bot instance for placeId: ${activeBotEntry.bot.placeId}`);
+      this.logger.log(`Found active bot instance for placeId: ${activeBotEntry.bot.placeId}`); // Лог
       return activeBotEntry.telegramBot;
     } else {
       this.logger.warn('No active bot instance found in this.placeBots during getMainTelegramBotInstance');
@@ -1386,33 +1064,36 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
     return new Promise((r) => setTimeout(r, params.ms));
   }
 
-private async composeListedBotsMessage(): Promise<string> {
-    this.logger.log('Composing listed bots message...'); // Лог
-    try { // try...catch охоплює ВЕСЬ код методу
-        const stats = await this.placeRepository.getListedPlaceBotStats(); // stats оголошено тут
+  // --- Залишаємо реалізацію composeListedBotsMessage ---
+  private async composeListedBotsMessage(): Promise<string> {
+      this.logger.log('Composing listed bots message...'); // Лог
+      try { // try...catch охоплює ВЕСЬ код методу
+          const stats = await this.placeRepository.getListedPlaceBotStats(); // stats оголошено тут
 
-        if (!stats || stats.length === 0) { // Перевірка stats всередині try
-            this.logger.log('No listed bot stats found.'); // Лог
-            return ''; // Повернення всередині try
-        }
+          // Перевірка stats всередині try
+          if (!stats || stats.length === 0) {
+              this.logger.log('No listed bot stats found.'); // Лог
+              return ''; // Повернення всередині try
+          }
 
-        // Весь наступний код тепер всередині try і має доступ до stats
-        const totalUsers = stats.reduce<number>(
-          (res, { numberOfUsers }) => res + Number(numberOfUsers), 0
-        );
+          // Весь наступний код тепер всередині try і має доступ до stats
+          const totalUsers = stats.reduce<number>(
+            (res, { numberOfUsers }) => res + Number(numberOfUsers), 0
+          );
 
-        let res = `Наразі сервісом користуються ${totalUsers} користувачів у ${stats.length} ботах:\n`;
+          let res = `Наразі сервісом користуються ${totalUsers} користувачів у ${stats.length} ботах:\n`;
 
-        stats.forEach(({ placeName, botName, numberOfUsers }) => {
-          res += `@${botName}\n${placeName}: ${numberOfUsers} користувачів\n`;
-        });
+          stats.forEach(({ placeName, botName, numberOfUsers }) => {
+            res += `@${botName}\n${placeName}: ${numberOfUsers} користувачів\n`;
+          });
 
-        this.logger.log(`Composed listed bots message: "${res.substring(0,50)}..."`); // Лог результату
-        return res + '\n'; // Повернення результату всередині try
+          this.logger.log(`Composed listed bots message: "${res.substring(0,50)}..."`); // Лог результату
+          return res + '\n'; // Повернення результату всередині try
 
-    } catch (error) {
-        this.logger.error(`Error composing listed bots message: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-        return ''; // Повертаємо порожній рядок у разі помилки
+      } catch (error) {
+          this.logger.error(`Error composing listed bots message: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+          return ''; // Повертаємо порожній рядок у разі помилки
+      }
     }
-  }
+
 } // <-- Кінець класу NotificationBotService
