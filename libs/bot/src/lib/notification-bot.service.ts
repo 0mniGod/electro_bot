@@ -673,7 +673,7 @@ constructor(
        }
   }
 
-  private async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
+  public async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
     readonly placeId: string;
   }): Promise<void> {
     const { placeId } = params;
