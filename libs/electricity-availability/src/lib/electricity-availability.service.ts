@@ -1,7 +1,7 @@
 import { Place } from '@electrobot/domain';
 import { PlaceRepository } from '@electrobot/place-repo';
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, forwardRef, Inject  } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationBotService } from '@electrobot/bot';
 import {
@@ -58,12 +58,13 @@ export class ElectricityAvailabilityService {
     })
   );
 
-  constructor(
-    private readonly electricityRepository: ElectricityRepository,
-    private readonly placeRepository: PlaceRepository,
-    private readonly httpService: HttpService,
-    private readonly notificationBotService: NotificationBotService
-  ) {
+constructor(
+  private readonly electricityRepository: ElectricityRepository,
+  private readonly placeRepository: PlaceRepository,
+  private readonly httpService: HttpService,
+  @Inject(forwardRef(() => NotificationBotService)) // <-- ВИПРАВЛЕНО
+  private readonly notificationBotService: NotificationBotService
+) {
     this.availabilityChange$.subscribe(
         (data) => {
             this.logger.debug(`Availability change processed for placeId: ${data.placeId}`);
