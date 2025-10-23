@@ -233,7 +233,7 @@ export class NotificationBotService implements OnModuleInit {
         */
         // --- Кінець закоментованого блоку ---
 
-        const response = latest.isAvailable
+        const response = latest.is_available
           ? RESP_CURRENTLY_AVAILABLE({
               when,
               howLong,
@@ -737,7 +737,7 @@ export class NotificationBotService implements OnModuleInit {
       let response: string;
       if (!previous) {
         this.logger.log(`No previous state found for place ${placeId}, sending short notification.`); // Лог
-        response = latest.isAvailable
+        response = latest.is_available
           ? RESP_ENABLED_SHORT({
               when,
               place: place.name,
@@ -763,7 +763,7 @@ export class NotificationBotService implements OnModuleInit {
         );
         this.logger.log(`Calculating notification for place ${placeId}. Time diff: ${diffInMinutes} minutes.`); // Лог
 
-        if (latest.isAvailable) {
+        if (latest.is_available) {
           response =
             diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
               ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name })
