@@ -2,7 +2,7 @@
 import { BotModule } from '@electrobot/bot';
 import { ElectricityAvailabilityModule } from '@electrobot/electricity-availability';
 import { Module } from '@nestjs/common';
-// ScheduleModule видалено
+import { ScheduleModule } from '@nestjs/schedule';
 import { KnexModule } from 'nestjs-knex';
 import { CronService } from './cron.service';
 // KyivElectricScheduleModule видалено
@@ -11,7 +11,7 @@ import { CronService } from './cron.service';
   imports: [
     ElectricityAvailabilityModule, // Це модуль, який пінгує ваш IP
     BotModule,
-    // ScheduleModule.forRoot() видалено
+    ScheduleModule.forRoot() видалено
     // KyivElectricScheduleModule видалено
   KnexModule.forRoot({
   config: {
