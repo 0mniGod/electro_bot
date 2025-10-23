@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ElectricityAvailabilityService } from './electricity-availability.service';
 import { HttpModule } from '@nestjs/axios';
-// KyivElectricstatusScheduleService та ScheduleModule видалені
-import { ElectricityRepository } from './electricity.repository'; // Імпортуємо репозиторій
-import { ScheduleModule } from '@nestjs/schedule'; // Повертаємо ScheduleModule
+import { ElectricityRepository } from './electricity.repository';
+import { ScheduleModule } from '@nestjs/schedule';
+import { PlaceRepoModule } from '@electrobot/place-repo'; // <-- ДОДАНО ЦЕЙ ІМПОРТ
 
 @Module({
-  imports: [HttpModule, ScheduleModule.forRoot()], // Повертаємо ScheduleModule.forRoot()
-  providers: [ElectricityAvailabilityService, ElectricityRepository], // <-- Додаємо ElectricityRepository
+  imports: [
+    HttpModule,
+    ScheduleModule.forRoot(),
+    PlaceRepoModule, // <-- ДОДАНО ЦЕЙ МОДУЛЬ
+  ],
+  providers: [ElectricityAvailabilityService, ElectricityRepository],
   exports: [ElectricityAvailabilityService],
 })
 export class ElectricityAvailabilityModule {}
