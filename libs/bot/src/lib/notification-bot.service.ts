@@ -986,12 +986,23 @@ export class NotificationBotService implements OnModuleInit {
       telegramBot.on('polling_error', (error) => { // Все ще корисно для діагностики внутрішніх помилок
          this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
       });
-      telegramBot.on('webhook_error', (error) => { // Додаємо обробник помилок вебхука
-        this.logger.error(`${place.name}/${bot.botName} webhook_error: ${error.code} ${error.message ? error.message : JSON.stringify(error)}`); // Додано JSON.stringify
+
+      // --- ВИПРАВЛЕНИЙ БЛОК ---
+      telegramBot.on('webhook_error', (error: any) => { // Додаємо ': any', щоб TypeScript не скаржився
+        // Безпечно перевіряємо наявність 'code' та 'message'
+        const errorCode = error?.code ? `Code: ${error.code}` : ''; // Перевіряємо чи існує error.code
+        const errorMessage = error?.message ? error.message : JSON.stringify(error); // Беремо message або весь об'єкт
+        this.logger.error(`${place.name}/${bot.botName} webhook_error: ${errorCode} ${errorMessage}`);
       });
+      // --- КІНЕЦЬ ВИПРАВЛЕНОГО БЛОКУ ---
+
       telegramBot.on('error', (error) => { // Загальний обробник помилок
         this.logger.error(`${place.name}/${bot.botName} general error: ${error}`, error instanceof Error ? error.stack : undefined); // Додано stack
       });
+
+      // Обробники команд
+      telegramBot.onText(/\/start/, (msg) => {
+        // ... і так далі ...
 
       // Обробники команд
       // Додаємо try...catch навколо кожного виклику handle... для кращої діагностики
