@@ -60,7 +60,8 @@ export class ElectricityAvailabilityService {
   constructor(
     private readonly electricityRepository: ElectricityRepository,
     private readonly placeRepository: PlaceRepository,
-    private readonly httpService: HttpService 
+    private readonly httpService: HttpService,
+    private readonly notificationBotService: NotificationBotService
   ) {
     this.availabilityChange$.subscribe(
         (data) => {
@@ -191,28 +192,36 @@ export class ElectricityAvailabilityService {
     }
   }
 
-  private async handleAvailabilityChange(params: {
-    readonly place: Place;
-    readonly isAvailable: boolean;
-  }): Promise<void> {
-    const { place, isAvailable } = params;
-    if (!place) {
-        this.logger.error('handleAvailabilityChange called with undefined place.');
-        return;
-    }
-    this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
-    try {
-        const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
-        if (!latest || latest.is_available !== isAvailable) { 
-          this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
-          await this.electricityRepository.save({ placeId: place.id, isAvailable });
-        } else {
-          this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
-        }
-    } catch (error) {
-         this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-    }
+private async handleAvailabilityChange(params: {
+  readonly place: Place;
+  readonly isAvailable: boolean;
+}): Promise<void> {
+  const { place, isAvailable } = params;
+  if (!place) {
+      this.logger.error('handleAvailabilityChange called with undefined place.');
+      return;
   }
+  this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+  try {
+      const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+      if (!latest || latest.is_available !== isAvailable) { 
+        this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
+        await this.electricityRepository.save({ placeId: place.id, isAvailable });
+
+        // --- ДОДАНО ВИКЛИК СПОВІЩЕННЯ ---
+        this.logger.log(`Triggering notification for place ${place.id}`);
+        await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
+        // ---------------------------------
+
+      } else {
+        this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
+      }
+  } catch (error) {
+       this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+  }
+}
+
+  
   public async getLatestPlaceAvailability(params: {
     readonly placeId: string;
     readonly limit: number;
