@@ -44,11 +44,10 @@ export class ElectricityAvailabilityService {
   private readonly place$ = new Subject<Place>();
   private readonly forceCheck$ = new Subject<Place>();
 
-  public readonly availabilityChange$ = zip(
-    this.place$,
-    // Використовуємо EVERY_MINUTE для більш швидкої реакції
-    timer(0, CronExpression.EVERY_MINUTE) 
-  ).pipe(
+public readonly availabilityChange$ = zip(
+  this.place$,
+  timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // <-- ПОВЕРНУЛИ ЧИСЛО
+).pipe(
     map(([place]) => place),
     filter((place) => place && !place.isDisabled), // Додано перевірку на place
     switchMap((place) => this.check(place)),
@@ -163,7 +162,7 @@ export class ElectricityAvailabilityService {
     this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
     try {
         const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
-        if (!latest || latest.isAvailable !== isAvailable) {
+        if (!latest || latest.is_available !== isAvailable) {
           this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
           await this.electricityRepository.save({ placeId: place.id, isAvailable });
         } else {
@@ -175,16 +174,16 @@ export class ElectricityAvailabilityService {
   }
 
   // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
-  public async getLatestPlaceAvailability(params: {
-    readonly placeId: string;
-    readonly limit: number;
-    readonly to?: Date; // Додаємо необов'язковий параметр 'to'
-  }): Promise<
-    ReadonlyArray<{
-      readonly time: Date;
-      readonly isAvailable: boolean;
-    }>
-  > {
+public async getLatestPlaceAvailability(params: {
+  readonly placeId: string;
+  readonly limit: number;
+  readonly to?: Date;
+}): Promise<
+  ReadonlyArray<{
+    readonly time: Date;
+    readonly is_available: boolean; // <-- ВИПРАВЛЕНО
+  }>
+> {
     this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
     try {
         // Переконуємось, що передаємо 'to' якщо він є
