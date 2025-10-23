@@ -1388,12 +1388,12 @@ private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
 
 private async composeListedBotsMessage(): Promise<string> {
     this.logger.log('Composing listed bots message...'); // Лог
-    try { // try...catch охоплює ВЕСЬ код методу, що використовує stats
+    try { // try...catch охоплює ВЕСЬ код методу
         const stats = await this.placeRepository.getListedPlaceBotStats(); // stats оголошено тут
 
         if (!stats || stats.length === 0) { // Перевірка stats всередині try
             this.logger.log('No listed bot stats found.'); // Лог
-            return '';
+            return ''; // Повернення всередині try
         }
 
         // Весь наступний код тепер всередині try і має доступ до stats
@@ -1408,7 +1408,7 @@ private async composeListedBotsMessage(): Promise<string> {
         });
 
         this.logger.log(`Composed listed bots message: "${res.substring(0,50)}..."`); // Лог результату
-        return res + '\n';
+        return res + '\n'; // Повернення результату всередині try
 
     } catch (error) {
         this.logger.error(`Error composing listed bots message: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
