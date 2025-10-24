@@ -132,11 +132,11 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через check-host.net (з ДЕТАЛЬНИМ ЛОГУВАННЯМ)
+   * Cервіс B: Перевірка через check-host.net (з ВИПРАВЛЕНОЮ логікою перевірки "OK")
    */
   private async checkViaCheckHost(host: string): Promise<boolean> {
     this.logger.verbose(`[CheckHost] Starting PING check for ${host} (EU)...`);
-
+    
     // --- 1. Визначимо вузли ---
     const nodes = ['de1.node.check-host.net', 'fr1.node.check-host.net', 'pl1.node.check-host.net'];
     
@@ -150,16 +150,10 @@ constructor(
       const requestResponse = await firstValueFrom(
         this.httpService.get(requestUrl, {
           timeout: 10000,
-          // !!! ЗАГОЛОВОК !!! Відповідаю на ваше запитання:
-          // Ми використовуємо Accept: application/json, як вимагає API.
-          // Жодного "adress = ..." тут не потрібно.
           headers: { 'Accept': 'application/json' } 
         })
       );
-      
-      // *** ЛОГУЄМО ВІДПОВІДЬ НА ЗАПИТ ***
       this.logger.debug(`[CheckHost] Request Response Data: ${JSON.stringify(requestResponse.data)}`);
-
       if (requestResponse.data.ok === 1 && requestResponse.data.request_id) {
         requestId = requestResponse.data.request_id;
         this.logger.log(`[CheckHost] Got request_id: ${requestId}`);
@@ -173,7 +167,7 @@ constructor(
 
     this.logger.verbose(`[CheckHost] Starting polling for ${requestId} (max 30s)...`);
     
-    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ (з логуванням) ---
+    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
     const maxAttempts = 5; 
     const pollInterval = 6000; // 6 секунд
@@ -192,8 +186,6 @@ constructor(
           })
         );
         results = resultResponse.data;
-        
-        // *** ЛОГУЄМО ОТРИМАНИЙ РЕЗУЛЬТАТ ***
         this.logger.debug(`[CheckHost] Poll Response Data (attempt ${i}): ${JSON.stringify(results)}`);
 
       } catch (error: any) {
@@ -201,11 +193,12 @@ constructor(
         continue; // Помилка http, але ми продовжуємо цикл
       }
 
-      // 1. ПЕРЕВІРЯЄМО НА "OK" (УСПІХ)
+      // 1. ПЕРЕВІРЯЄМО НА "OK" (УСПІХ) - ВИПРАВЛЕНА ЛОГІКА
       if (results) { 
         let foundOK = false;
         for (const node of nodes) {
-          if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
+          // *** ОСЬ ВИПРАВЛЕННЯ: Додано [0] ***
+          if (results[node] && results[node][0] && results[node][0][0] && results[node][0][0][0] === 'OK') {
             this.logger.log(`[CheckHost] >>> SUCCESS found on attempt ${i} from node ${node}!`);
             foundOK = true;
             break; // Знайшли "OK", виходимо з внутрішнього циклу for
