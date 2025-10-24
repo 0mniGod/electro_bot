@@ -1,9 +1,9 @@
 import { Place } from '@electrobot/domain';
 import { PlaceRepository } from '@electrobot/place-repo';
 import { HttpService } from '@nestjs/axios';
-// Додаємо OnModuleInit, forwardRef, Inject
-import { Injectable, Logger, OnModuleInit, forwardRef, Inject } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule'; 
+import { Injectable, Logger, OnModuleInit, forwardRef, Inject  } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { NotificationBotService } from '@electrobot/bot';
 import {
   addHours,
   addMinutes, 
@@ -32,22 +32,17 @@ import {
 import { HistoryItem } from './history-item.type';
 import { ElectricityRepository } from './electricity.repository'; 
 import * as net from 'net'; 
-import { NotificationBotService } from '@electrobot/bot'; // <-- Додано імпорт
 
-const CHECK_INTERVAL_IN_MINUTES = 2; // Інтервал для потоку
+const CHECK_INTERVAL_IN_MINUTES = 2; // Частота перевірки Cron
 const API_KEY = 'demo'; // Використовуємо демонстраційний ключ
 
 @Injectable()
-export class ElectricityAvailabilityService implements OnModuleInit { // Додано OnModuleInit
+export class ElectricityAvailabilityService {
   private readonly logger = new Logger(
     ElectricityAvailabilityService.name
   );
   private readonly place$ = new Subject<Place>();
   private readonly forceCheck$ = new Subject<Place>();
-
-  // --- ДОДАНО ЗАМОК (LOCK) ---
-  private static isCronRunning = false; 
-  // ---------------------------
 
   public readonly availabilityChange$ = zip(
     this.place$,
@@ -63,14 +58,13 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     })
   );
 
-  constructor(
-    private readonly electricityRepository: ElectricityRepository,
-    private readonly placeRepository: PlaceRepository,
-    private readonly httpService: HttpService,
-    // Використовуємо forwardRef для уникнення циклічної залежності
-    @Inject(forwardRef(() => NotificationBotService)) 
-    private readonly notificationBotService: NotificationBotService
-  ) {
+constructor(
+  private readonly electricityRepository: ElectricityRepository,
+  private readonly placeRepository: PlaceRepository,
+  private readonly httpService: HttpService,
+  @Inject(forwardRef(() => NotificationBotService)) // <-- ВИПРАВЛЕНО
+  private readonly notificationBotService: NotificationBotService
+) {
     this.availabilityChange$.subscribe(
         (data) => {
             this.logger.debug(`Availability change processed for placeId: ${data.placeId}`);
@@ -81,66 +75,35 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     );
   }
 
-  // --- ДОДАНО onModuleInit ---
-  async onModuleInit(): Promise<void> {
-    this.logger.log('>>> [ElAvailSvc] ENTERING onModuleInit()');
-    try {
-      // Запускаємо періодичне оновлення
-      const refreshRate = 10 * 60 * 1000; // 10 min
-      if (!(global as any).botRefreshInterval) {
-         (global as any).botRefreshInterval = setInterval(() => {
-             this.logger.log('>>> [ElAvailSvc] Interval triggered: calling refreshAllPlacesAndBots()');
-             this.placeRepository.getAllPlaces().then(places => { // Отримуємо актуальні 'places'
-                 places.forEach(place => {
-                     if (place && !place.isDisabled) {
-                         this.place$.next(place); // Пушимо кожне місце в потік
-                     }
-                 });
-             }).catch(err => {
-                 this.logger.error(`Error during scheduled place refresh: ${err}`, err instanceof Error ? err.stack : undefined);
-             });
-         }, refreshRate);
-         this.logger.log(`[ElAvailSvc] Periodic refresh scheduled every ${refreshRate / 1000 / 60} minutes.`);
-      } else {
-         this.logger.warn('[ElAvailSvc] Periodic refresh interval already set.');
-      }
-    } catch (error) {
-      this.logger.error(`>>> [ElAvailSvc] CRITICAL ERROR inside onModuleInit: ${error}`, error instanceof Error ? error.stack : undefined);
-    }
-    this.logger.log('>>> [ElAvailSvc] EXITING onModuleInit()');
-  }
-  // ------------------------------------
-
   // --- НОВИЙ ДОПОМІЖНИЙ МЕТОД ---
   private async sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ (5) ---
+  // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ ---
   private async checkWithRetries(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean;
   }> {
-    const retries = 5; // <-- 5 СПРОБ
+    const retries = 3; // 3 спроби
     const delay = 5000; // 5 секунд між спробами
 
     for (let i = 1; i <= retries; i++) {
       this.logger.verbose(`Check attempt ${i}/${retries} for ${place.host}`);
-      // Викликаємо check (який робить 1 спробу)
       const { isAvailable } = await this.check(place);
-
+      
       if (isAvailable) {
         // Успіх
         return { place, isAvailable: true };
       }
-
+      
       if (i < retries) {
         this.logger.warn(`Check attempt ${i} failed. Retrying in ${delay / 1000}s...`);
         await this.sleep(delay);
       }
     }
 
-    // Якщо всі 5 спроб не вдалися
+    // Якщо всі 3 спроби не вдалися
     this.logger.warn(`All ${retries} check attempts failed for ${place.host}. Reporting as UNAVAILABLE.`);
     return { place, isAvailable: false };
   }
@@ -161,21 +124,23 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     try {
         const response = await firstValueFrom(
             this.httpService.get(url, { 
-                timeout: 15000, 
+                timeout: 15000, // Збільшуємо тайм-аут до 15 секунд
                 headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
             })
         );
-
+        
         if (response.data && response.data.response && response.data.response.detail) {
+            // Шукаємо регіон "Europe"
             const europeRegion = response.data.response.detail.find(
                 (region: any) => region.region === 'Europe'
             );
 
             if (europeRegion && europeRegion.locations && europeRegion.locations.length > 0) {
+                // Перевіряємо, чи ХОЧА Б ОДНА європейська локація має 0% втрат
                 const isAnyEuropeLocationOK = europeRegion.locations.some(
                     (loc: any) => loc.packet_loss === '0%'
                 );
-
+                
                 if (isAnyEuropeLocationOK) {
                     isAvailable = true;
                     this.logger.debug(`PING check successful for ${host} from Europe.`);
@@ -204,29 +169,20 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
   }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
-  // --- ЦЕЙ МЕТОД ВИКЛИКАЄ CRONSERVICE ---
-  // Використовуємо EVERY_3_MINUTES
-  @Cron('*/3 * * * *', { 
+  @Cron(CronExpression.EVERY_MINUTE, { // Використовуємо EVERY_MINUTE
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    // --- ПЕРЕВІРКА ЗАМКА ---
-    if (ElectricityAvailabilityService.isCronRunning) {
-        this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
-        return;
-    }
-    ElectricityAvailabilityService.isCronRunning = true;
-    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
-    // ----------------------
-
+    this.logger.verbose('Cron job "check-electricity-availability" (checkAndSave...) started.');
     try {
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
-
+      
       await Promise.all(places.map(async (place) => {
         if (place && !place.isDisabled) { 
-            this.logger.debug(`Cron: Pushing place ${place.name} to check queue.`);
-            this.place$.next(place); // Пушимо в потік
+            this.logger.debug(`Cron: Checking place ${place.name}...`);
+            const { isAvailable } = await this.checkWithRetries(place); // Викликаємо з повторними спробами
+            await this.handleAvailabilityChange({ place, isAvailable });
         } else if (place) {
             this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
         }
@@ -235,51 +191,43 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
       this.logger.verbose('Cron job "check-electricity-availability" finished.');
     } catch (error) {
        this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
-    } finally {
-       // --- ВІДПУСКАЄМО ЗАМОК ---
-       ElectricityAvailabilityService.isCronRunning = false;
-       this.logger.log('Cron job "check-electricity-availability" lock released.');
-       // ------------------------
-    }
-  }
-  // ---------------------------------------------
-
-  private async handleAvailabilityChange(params: {
-    readonly place: Place;
-    readonly isAvailable: boolean;
-  }): Promise<void> {
-    const { place, isAvailable } = params;
-    if (!place) {
-        this.logger.error('handleAvailabilityChange called with undefined place.');
-        return;
-    }
-    this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
-    try {
-        const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
-        // Виправлено: is_available
-        if (!latest || latest.is_available !== isAvailable) { 
-          this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
-          await this.electricityRepository.save({ placeId: place.id, isAvailable });
-
-          // --- ДОДАНО ВИКЛИК СПОВІЩЕННЯ ---
-          this.logger.log(`Triggering notification for place ${place.id}`);
-          // Викликаємо публічний метод з NotificationBotService
-          await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
-          // ---------------------------------
-
-        } else {
-          this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
-        }
-    } catch (error) {
-         this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
     }
   }
 
+private async handleAvailabilityChange(params: {
+  readonly place: Place;
+  readonly isAvailable: boolean;
+}): Promise<void> {
+  const { place, isAvailable } = params;
+  if (!place) {
+      this.logger.error('handleAvailabilityChange called with undefined place.');
+      return;
+  }
+  this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+  try {
+      const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+      if (!latest || latest.is_available !== isAvailable) { 
+        this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
+        await this.electricityRepository.save({ placeId: place.id, isAvailable });
 
+        // --- ДОДАНО ВИКЛИК СПОВІЩЕННЯ ---
+        this.logger.log(`Triggering notification for place ${place.id}`);
+        await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
+        // ---------------------------------
+
+      } else {
+        this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
+      }
+  } catch (error) {
+       this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+  }
+}
+
+  
   public async getLatestPlaceAvailability(params: {
     readonly placeId: string;
     readonly limit: number;
-    readonly to?: Date; 
+    readonly to?: Date; // Додаємо необов'язковий параметр 'to'
   }): Promise<
     ReadonlyArray<{
       readonly time: Date;
@@ -288,6 +236,7 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
   > {
     this.logger.debug(`Getting latest availability for place ${params.placeId} (limit ${params.limit})`);
     try {
+        // Переконуємось, що передаємо 'to' якщо він є
         return await this.electricityRepository.getLatest({
             placeId: params.placeId,
             limit: params.limit,
@@ -295,10 +244,11 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
         });
     } catch (error) {
         this.logger.error(`Error in getLatestPlaceAvailability for ${params.placeId}: ${error}`, error instanceof Error ? error.stack : undefined);
-        return []; 
+        return []; // Повертаємо порожній масив у разі помилки
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getTodayAndYesterdayStats(params: {
     readonly place: Place;
   }): Promise<{
@@ -318,7 +268,7 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     try {
         const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
         const todayStart = startOfDay(now);
-        const yesterdayStart = startOfDay(addHours(todayStart, -2)); 
+        const yesterdayStart = startOfDay(addHours(todayStart, -2)); // Беремо початок попереднього дня
         const yesterdayEnd = endOfDay(yesterdayStart);
 
         const [todayHistory, yesterdayHistory] = await Promise.all([
@@ -353,8 +303,9 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
             today: todayHistory,
             yesterday: yesterdayHistory,
           },
-          lastStateBeforeToday: lastStateBeforeToday?.is_available, // Виправлено
-          lastStateBeforeYesterday: lastStateBeforeYesterday?.is_available, // Виправлено
+          // Виправляємо помилку: база повертає is_available
+          lastStateBeforeToday: lastStateBeforeToday?.is_available, 
+          lastStateBeforeYesterday: lastStateBeforeYesterday?.is_available,
         };
     } catch (error) {
          this.logger.error(`Error in getTodayAndYesterdayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
@@ -362,6 +313,7 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     }
   }
 
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStats(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -387,7 +339,7 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
           from: start,
           to: end,
         });
-        if (!history || !history.length) { 
+        if (!history || !history.length) { // Додано перевірку
           this.logger.warn(`No history data found for month stats, place ${place.id}`);
           return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
         }
@@ -412,7 +364,8 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
         return { totalMinutesAvailable: 0, totalMinutesUnavailable: 0 };
     }
   }
-
+  
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
   public async getMonthStatsMessage(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
@@ -423,8 +376,9 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
     }
     this.logger.debug(`Getting month stats message for place ${params.place.id}`);
     try {
+        // !!! ВИПРАВЛЕННЯ: Викликаємо getMonthStats !!!
         const { totalMinutesAvailable, totalMinutesUnavailable } =
-          await this.getMonthStats(params); // Виклик виправлено
+          await this.getMonthStats(params);
 
         const totalMinutes = totalMinutesAvailable + totalMinutesUnavailable;
         if (totalMinutes === 0) {
@@ -473,271 +427,135 @@ export class ElectricityAvailabilityService implements OnModuleInit { // Дод�
          return '';
     }
   }
-  private isGroup(params: { readonly chatId: number }): boolean {
-    const result = params.chatId < 0;
-    // this.logger.debug(`isGroup check for chatId ${params.chatId}: ${result}`); // Розкоментуйте для детального логування
-    return result;
-  }
 
-  private async refreshAllPlacesAndBots(): Promise<void> {
-    this.logger.log('>>> ENTERING refreshAllPlacesAndBots()'); // Лог входу в метод
-    if (this.isRefreshingPlacesAndBots) {
-      this.logger.warn('Refresh already in progress, skipping.');
-      return;
-    }
-
-    this.logger.log('Starting refreshAllPlacesAndBots...');
-    this.isRefreshingPlacesAndBots = true;
-    let loadedPlaces: Place[] = []; // Змінна для зберігання завантажених місць
-    let loadedBots: Bot[] = []; // Змінна для зберігання завантажених ботів
-    try {
-      this.logger.log('Attempting to load places from DB...'); // Лог
-      loadedPlaces = await this.placeRepository.getAllPlaces();
-      this.logger.log(`Loaded ${loadedPlaces.length} places from DB. IDs: ${JSON.stringify(loadedPlaces.map(p => p.id))}`);
-      this.places = loadedPlaces.reduce<Record<string, Place>>(
-        (res, place) => ({ ...res, [place.id]: place }),
-        {}
-      );
-
-      this.logger.log('Attempting to load bot configurations from DB...'); // Лог
-      loadedBots = await this.placeRepository.getAllPlaceBots();
-      this.logger.log(`Loaded ${loadedBots.length} bots configurations from DB. place_ids: ${JSON.stringify(loadedBots.map(b => b.placeId))}`);
-
-      const newPlaceBots: typeof this.placeBots = {};
-      const activePlaceIds = new Set<string>(); // Зберігатимемо ID активних ботів
-
-      // Спочатку обробляємо конфігурації
-      for (const botConfig of loadedBots) {
-        this.logger.log(`Processing bot config for place_id: ${botConfig.placeId}, isEnabled: ${botConfig.isEnabled}, bot_name: ${botConfig.botName}`); // Лог для кожного бота
-        if (!botConfig.isEnabled) {
-           this.logger.log(`Bot for place ${botConfig.placeId} is disabled in DB, skipping creation/update.`);
-           continue; // Переходимо до наступної конфігурації
-        }
-
-        // Якщо бот активний, додаємо його ID до сету
-        activePlaceIds.add(botConfig.placeId);
-
-        const place = this.places[botConfig.placeId];
-        if (!place) {
-          this.logger.error(
-            `Place ${botConfig.placeId} (from bots table) not found in loaded places cache - cannot process bot config` // Уточнено лог
-          );
-          continue;
-        }
-
-        const existingEntry = this.placeBots[botConfig.placeId];
-        if (existingEntry) {
-            // Бот вже існує в кеші
-            if(existingEntry.bot.token !== botConfig.token) {
-                // Токен змінився - потрібно перестворити інстанс
-                this.logger.warn(`Token changed for place ${place.id}. Recreating bot instance.`);
-                try {
-                   // Спробуємо зупинити старий інстанс (може не працювати без polling)
-                   if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).stopPolling === 'function') {
-                      await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
-                   }
-                   if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).close === 'function') {
-                       await (existingEntry.telegramBot as any).close().catch(closeError => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
-                   }
-                   this.logger.log(`Stopped/closed previous instance for place ${place.id} due to token change.`);
-                } catch (stopError) {
-                   this.logger.error(`Error stopping/closing previous instance for place ${place.id}: ${stopError}`);
-                }
-                // Створюємо новий інстанс
-                const createdInstance = this.createBot({ place, bot: botConfig });
-                 if (createdInstance) {
-                   newPlaceBots[botConfig.placeId] = { bot: botConfig, telegramBot: createdInstance };
-                 } else {
-                   this.logger.error(`Re-creation failed for place ${place.id} after token change.`);
-                 }
-            } else {
-              // Токен не змінився, просто оновлюємо конфігурацію, зберігаючи старий інстанс
-              newPlaceBots[botConfig.placeId] = { ...existingEntry, bot: botConfig };
-              this.logger.log(`Bot instance for place ${place.id} already exists, config updated (token unchanged).`);
-            }
-        } else {
-          // Якщо бота немає в кеші - створюємо новий
-          this.logger.log(`Creating NEW bot instance for place ${place.id}`);
-          const createdInstance = this.createBot({ place, bot: botConfig });
-          if (createdInstance) {
-             newPlaceBots[botConfig.placeId] = { bot: botConfig, telegramBot: createdInstance };
-          } else {
-             this.logger.error(`createBot returned undefined for place ${place.id}. Instance NOT created.`);
-          }
-        }
-      } // кінець циклу for (const botConfig of loadedBots)
-
-      // Тепер зупиняємо та видаляємо інстанси, яких НЕМАЄ в активних конфігураціях
-      for (const placeId in this.placeBots) {
-          if (!activePlaceIds.has(placeId)) { // Якщо ID зі старого кешу немає в новому списку активних
-              this.logger.warn(`Bot for place ${placeId} seems removed from DB or disabled. Stopping and removing instance.`);
-              const instanceToStop = this.placeBots[placeId]?.telegramBot;
-               try {
-                   if (instanceToStop && typeof (instanceToStop as any).stopPolling === 'function') {
-                      await (instanceToStop as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
-                   }
-                   if (instanceToStop && typeof (instanceToStop as any).close === 'function') {
-                      await (instanceToStop as any).close().catch(closeError => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
-                   }
-                   this.logger.log(`Stopped/closed removed/disabled instance for place ${placeId}`);
-                } catch (stopError) {
-                   this.logger.error(`Error stopping/closing removed/disabled instance for place ${placeId}: ${stopError}`);
-                }
-                // Не додаємо його до newPlaceBots, таким чином видаляючи з кешу
-          }
-      }
-
-      this.placeBots = newPlaceBots; // Оновлюємо кеш ботів тільки активними/оновленими інстансами
-      this.logger.log(`Finished processing bots configurations. Active instances in this.placeBots: ${Object.keys(this.placeBots).length}`);
-
-    } catch (e) {
-      this.logger.error(`>>> ERROR inside refreshAllPlacesAndBots during DB fetch or processing: ${e}`, e instanceof Error ? e.stack : undefined);
-    } finally {
-      this.isRefreshingPlacesAndBots = false;
-      this.logger.log('>>> EXITING refreshAllPlacesAndBots()'); // Лог виходу з методу
-    }
-  }
-
-  // Змінено: createBot тепер повертає створений екземпляр або undefined
-  private createBot(params: {
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDayStats(params: {
     readonly place: Place;
-    readonly bot: Bot;
-  }): TelegramBot | undefined {
-    const { place, bot } = params;
+    readonly date: Date;
+  }): Promise<
+    ReadonlyArray<{
+      readonly start: Date;
+      readonly end: Date;
+      readonly isEnabled: boolean;
+    }>
+  > {
+    const { place, date } = params;
+    if (!place || !date) {
+        this.logger.error('getDayStats called with undefined params.');
+        return [];
+    }
+    this.logger.debug(`Getting day stats for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
     try {
-      this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`); // Лог
-      if (!bot.token) {
-          this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
-          return undefined;
-      }
-      // Створюємо без polling
-      const telegramBot = new TelegramBot(bot.token);
-      this.logger.log(`TelegramBot instance created for place ${place.id}. Attaching listeners...`); // Лог
+        const start = convertToTimeZone(startOfDay(date), {
+          timeZone: place.timezone,
+        });
+        const end = convertToTimeZone(endOfDay(date), {
+          timeZone: place.timezone,
+        });
 
-      // Обробники подій
-      telegramBot.on('polling_error', (error) => { // Все ще корисно для діагностики внутрішніх помилок
-         this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
-      });
-      telegramBot.on('webhook_error', (error: any) => { // Додаємо обробник помилок вебхука
-        // Безпечно перевіряємо наявність 'code' та 'message'
-        const errorCode = error?.code ? `Code: ${error.code}` : '';
-        const errorMessage = error?.message ? error.message : JSON.stringify(error);
-        this.logger.error(`${place.name}/${bot.botName} webhook_error: ${errorCode} ${errorMessage}`);
-      });
-      telegramBot.on('error', (error) => { // Загальний обробник помилок
-        this.logger.error(`${place.name}/${bot.botName} general error: ${error}`, error instanceof Error ? error.stack : undefined); // Додано stack
-      });
-
-      // Обробники команд
-      // Додаємо try...catch навколо кожного виклику handle... для кращої діагностики
-      telegramBot.onText(/\/start/, (msg) => {
-        this.logger.debug(`Received /start for place ${place.id} via onText`); // Лог
-        this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/current/, (msg) => {
-        this.logger.debug(`Received /current for place ${place.id} via onText`); // Лог
-        this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/subscribe/, (msg) => {
-        this.logger.debug(`Received /subscribe for place ${place.id} via onText`); // Лог
-        this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/unsubscribe/, (msg) => {
-        this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`); // Лог
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/stop/, (msg) => {
-        this.logger.debug(`Received /stop for place ${place.id} via onText`); // Лог
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/stats/, (msg) => {
-        this.logger.debug(`Received /stats for place ${place.id} via onText`); // Лог
-        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/about/, (msg) => {
-        this.logger.debug(`Received /about for place ${place.id} via onText`); // Лог
-        this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-
-      this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
-      return telegramBot; // Повертаємо створений екземпляр
+        return await this.electricityRepository.getHistory({
+          placeId: place.id,
+          from: start,
+          to: end,
+        });
     } catch (error) {
-       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-       return undefined; // Повертаємо undefined у разі помилки
+         this.logger.error(`Error in getDayStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return [];
     }
   }
 
-  // Метод для отримання інстансу бота
-  public getMainTelegramBotInstance(): TelegramBot | undefined {
-    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`); // Лог
-    // Шукаємо перший активний бот (можна вдосконалити, якщо ботів багато)
-    const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
-    if (activeBotEntry) {
-      this.logger.log(`Found active bot instance for placeId: ${activeBotEntry.bot.placeId}`); // Лог
-      return activeBotEntry.telegramBot;
-    } else {
-      this.logger.warn('No active bot instance found in this.placeBots during getMainTelegramBotInstance');
-      return undefined;
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDaysStats(params: {
+    readonly place: Place;
+    readonly dateFrom: Date;
+    readonly dateTo: Date;
+  }): Promise<
+    Record<
+      string,
+      ReadonlyArray<{
+        readonly start: Date;
+        readonly end: Date;
+        readonly isEnabled: boolean;
+      }>
+    >
+  > {
+    const { place, dateFrom, dateTo } = params;
+    if (!place || !dateFrom || !dateTo) {
+        this.logger.error('getDaysStats called with undefined params.');
+        return {};
     }
-  }
+    this.logger.debug(`Getting stats for ${place.id} from ${format(dateFrom, 'yyyy-MM-dd')} to ${format(dateTo, 'yyyy-MM-dd')}`);
+    try {
+        const days = eachDayOfInterval({ start: dateFrom, end: dateTo });
+        const result: Record<
+          string,
+          ReadonlyArray<{
+            readonly start: Date;
+            readonly end: Date;
+            readonly isEnabled: boolean;
+          }>
+        > = {};
 
-  private async notifyBotDisabled(params: {
-    readonly chatId: number;
-    readonly telegramBot: TelegramBot;
-  }): Promise<void> {
-    const { chatId, telegramBot } = params;
-    // Додаємо перевірку на null/undefined
-    if (!chatId || !telegramBot) {
-        this.logger.error('Missing parameters in notifyBotDisabled');
-        return;
-    }
-    try { // Додано try...catch
-        this.logger.log(`Sending MSG_DISABLED to chat ${chatId}`); // Лог
-        await telegramBot.sendMessage(chatId, MSG_DISABLED, { parse_mode: 'HTML' });
+        for (const day of days) {
+          const dayStats = await this.getDayStats({ place, date: day });
+          result[format(day, 'yyyy-MM-dd')] = dayStats;
+        }
+
+        return result;
     } catch (error) {
-        this.logger.error(`Error sending MSG_DISABLED to chat ${chatId}: ${error}`); // Лог помилки
+         this.logger.error(`Error in getDaysStats for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+         return {};
     }
   }
 
-  private async sleep(params: { readonly ms: number }): Promise<void> {
-    // this.logger.debug(`Sleeping for ${params.ms} ms`); // Розкоментуйте для дуже детального логування
-    // Додаємо перевірку на null/undefined
-    if (params?.ms > 0) {
-        return new Promise((r) => setTimeout(r, params.ms));
-    } else {
-        return Promise.resolve(); // Не чекаємо, якщо ms не задано або <= 0
+  // --- ВІДНОВЛЮЄМО РЕАЛІЗАЦІЮ ---
+  public async getDayOffGroups(params: {
+    readonly place: Place;
+    readonly date: Date;
+  }): Promise<ReadonlyArray<number>> {
+    const { place, date } = params;
+    if (!place || !date) {
+        this.logger.error('getDayOffGroups called with undefined params.');
+        return [];
     }
-  }
+    this.logger.debug(`Getting day off groups for place ${place.id}, date: ${format(date, 'yyyy-MM-dd')}`);
+    const dayOfWeek = getDay(date); // 0 - Неділя, 1 - Понеділок ... 6 - Субота
+    const dayStats = await this.getDayStats({ place, date });
+    
+    if (!dayStats) { // Додано перевірку
+        this.logger.error(`getDayStats returned undefined for place ${place.id} in getDayOffGroups`);
+        return [];
+    }
+    
+    if (dayStats.length === 1 && !dayStats[0].isEnabled) {
+        this.logger.log(`Place ${place.id} was OFF all day on ${format(date, 'yyyy-MM-dd')}. Returning group 0.`);
+        return [0]; 
+    }
+    
+    if (dayStats.length === 1 && dayStats[0].isEnabled) {
+        this.logger.log(`Place ${place.id} was ON all day on ${format(date, 'yyyy-MM-dd')}. Returning group 4.`);
+        return [4]; 
+    }
 
-  private async composeListedBotsMessage(): Promise<string> {
-      this.logger.log('Composing listed bots message...'); // Лог
-      try { // try...catch охоплює ВЕСЬ код методу
-          const stats = await this.placeRepository.getListedPlaceBotStats(); // stats оголошено тут
-
-          // Перевірка stats всередині try
-          if (!stats || stats.length === 0) {
-              this.logger.log('No listed bot stats found.'); // Лог
-              return ''; // Повернення всередині try
-          }
-
-          // Весь наступний код тепер всередині try і має доступ до stats
-          const totalUsers = stats.reduce<number>(
-            (res, { numberOfUsers }) => res + Number(numberOfUsers), 0
-          );
-
-          let res = `Наразі сервісом користуються ${totalUsers} користувачів у ${stats.length} ботах:\n`;
-
-          stats.forEach(({ placeName, botName, numberOfUsers }) => {
-            res += `@${botName}\n${placeName}: ${numberOfUsers} користувачів\n`;
-          });
-
-          this.logger.log(`Composed listed bots message: "${res.substring(0,50)}..."`); // Лог результату
-          return res + '\n'; // Повернення результату всередині try
-
-      } catch (error) {
-          this.logger.error(`Error composing listed bots message: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-          return ''; // Повертаємо порожній рядок у разі помилки
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      if (dayStats.length === 3) { 
+        this.logger.log(`Place ${place.id} (weekday) has 3 intervals. Returning group 1.`);
+        return [1]; 
       }
+      if (dayStats.length === 5) { 
+         this.logger.log(`Place ${place.id} (weekday) has 5 intervals. Returning group 2.`);
+        return [2]; 
+      }
+       this.logger.warn(`Place ${place.id} (weekday) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+      return []; 
+    } 
+    else { 
+        if (dayStats.length === 3) { 
+            this.logger.log(`Place ${place.id} (weekend) has 3 intervals. Returning group 3.`);
+            return [3]; 
+        }
+         this.logger.warn(`Place ${place.id} (weekend) has unexpected interval count: ${dayStats.length}. Returning empty array.`);
+        return []; 
     }
-
-} // <-- Кінець класу NotificationBotService
+  }
+}
