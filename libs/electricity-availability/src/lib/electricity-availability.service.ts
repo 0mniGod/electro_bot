@@ -132,7 +132,7 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через check-host.net (з надійним пулінгом)
+   * Cервіс B: Перевірка через check-host.net (з коректним "терплячим" пулінгом)
    */
   private async checkViaCheckHost(host: string): Promise<boolean> {
     this.logger.verbose(`Starting PING check for ${host} via check-host.net (EU)...`);
@@ -140,7 +140,7 @@ constructor(
     // --- 1. Визначимо вузли ---
     const nodes = ['de1.node.check-host.net', 'fr1.node.check-host.net', 'pl1.node.check-host.net'];
     
-    // --- 2. Запит на перевірку (залишається як було) ---
+    // --- 2. Запит на перевірку ---
     const nodeParams = nodes.map(n => `node=${n}`).join('&');
     const requestUrl = `https://check-host.net/check-ping?host=${host}&${nodeParams}`;
     let requestId: string;
@@ -152,7 +152,6 @@ constructor(
           headers: { 'Accept': 'application/json' }
         })
       );
-
       if (requestResponse.data.ok === 1) {
         requestId = requestResponse.data.request_id;
       } else {
@@ -160,73 +159,83 @@ constructor(
       }
     } catch (error: any) {
       this.logger.error(`check-host.net (Request) failed: ${error.message}`);
-      return false;
+      return false; // Провал на етапі 1 (замовлення)
     }
 
-    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Starting polling (max 25s)...`);
+    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Starting polling (max 30s)...`);
     
-    // --- 3. ОНОВЛЕНА ЛОГІКА: Очікування та отримання результату ---
+    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ (опитування) ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
-    const maxAttempts = 5; // 5 спроб
-    const pollInterval = 5000; // 5 секунд (5 * 5 = 25 сек загалом)
+    
+    // Ми зробимо 5 спроб з інтервалом 6 секунд (загалом 30 секунд очікування)
+    const maxAttempts = 5; 
+    const pollInterval = 6000; // 6 секунд
 
     for (let i = 1; i <= maxAttempts; i++) {
-      // Чекаємо 5 секунд перед кожною спробою
+      // Чекаємо 6 секунд перед кожною спробою
       await this.sleep(pollInterval); 
       this.logger.verbose(`check-host.net: Poll attempt ${i}/${maxAttempts} for ${requestId}...`);
 
+      let results;
       try {
+        // Отримуємо результат
         const resultResponse = await firstValueFrom(
           this.httpService.get(resultUrl, {
             timeout: 10000,
             headers: { 'Accept': 'application/json' }
           })
         );
-        
-        const results = resultResponse.data;
+        results = resultResponse.data;
 
-        // Випадок 1: Результат ще null (тест точно не готовий)
-        if (results === null) {
-          this.logger.verbose(`check-host.net: Results not ready yet (null).`);
-          continue; // Чекаємо ще 5 сек
-        }
+      } catch (error: any) {
+        this.logger.warn(`check-host.net (Polling attempt ${i}) http error: ${error.message}`);
+        continue; // Помилка http, але ми продовжуємо цикл, не виходимо
+      }
 
-        // Випадок 2: Результат - об'єкт, але не всі вузли готові
-        // (Перевіряємо, чи всі ключі: de1, fr1, pl1 присутні у відповіді)
-        let allNodesReported = true;
-        for (const node of nodes) {
-          if (!results[node]) { // Якщо `results['de1...']` не існує або null
-            allNodesReported = false;
-            break; 
-          }
-        }
-
-        if (!allNodesReported) {
-          this.logger.verbose(`check-host.net: Results not ready yet (some nodes missing).`);
-          continue; // Не всі вузли готові, чекаємо ще 5 сек
-        }
-
-        // Випадок 3: Всі вузли готові. Шукаємо "OK"
-        this.logger.verbose(`check-host.net: All nodes have reported. Checking for "OK"...`);
+      // 1. ПЕРЕВІРЯЄМО НА "OK" (УСПІХ)
+      //    (results може бути null, тому потрібні перевірки)
+      if (results) { 
         for (const node of nodes) {
           // Шукаємо [ "OK", ... ]
           if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
             this.logger.debug(`check-host.net check successful from ${node}.`);
-            return true; // УСПІХ!
+            return true; // !!! УСПІХ! Негайно виходимо.
           }
         }
-
-        // Випадок 4: Всі вузли готові, але "OK" не знайдено (тобто, TIMEOUT)
-        this.logger.warn(`check-host.net check FAILED (No OK from EU nodes).`);
-        return false; // ПРОВАЛ!
-
-      } catch (error: any) {
-        this.logger.warn(`check-host.net (Polling attempt ${i}) failed: ${error.message}`);
-        // Дозволяємо циклу спробувати ще раз
       }
+
+      // 2. Якщо ми тут, значить "OK" ще не знайдено.
+      //    Перевіряємо, чи тест завершився з помилкою (TIMEOUT/UNREACHABLE)
+      //    або він ще триває (null / не всі вузли).
+
+      // 2a. Тест ще 100% триває (результат `null`)
+      if (results === null) {
+        this.logger.verbose(`check-host.net: Results not ready yet (null). Continuing poll...`);
+        continue; // Продовжуємо цикл
+      }
+
+      // 2b. Перевіряємо, чи всі вузли вже відзвітували
+      let allNodesReported = true;
+      for (const node of nodes) {
+        if (!results[node]) { // Якщо `results['de1...']` не існує
+          allNodesReported = false;
+          break; 
+        }
+      }
+
+      // 2c. Вузли ще не всі готові
+      if (!allNodesReported) {
+        this.logger.verbose(`check-host.net: Not all nodes have reported. Continuing poll...`);
+        continue; // Продовжуємо цикл
+      }
+
+      // 2d. (Найгірший випадок) Всі вузли відзвітували, але "OK" не було знайдено.
+      //     Це означає, що тест завершився з TIMEOUT.
+      this.logger.warn(`check-host.net check FAILED (All nodes reported, but no OK).`);
+      return false; // !!! ПРОВАЛ! Негайно виходимо.
     }
 
-    // Випадок 5: Цикл завершився (вийшов час 25 сек)
+    // 3. (Провал) Ми вийшли з циклу (пройшло 30 секунд), але так і не отримали "OK"
     this.logger.error(`check-host.net FAILED: Polling timed out after ${maxAttempts * pollInterval / 1000}s.`);
     return false;
   }
