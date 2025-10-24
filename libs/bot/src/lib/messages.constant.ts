@@ -27,7 +27,6 @@ export const RESP_START = (params: {
   readonly listedBotsMessage: string;
 }) =>
   `Привіт! Цей бот допомогає моніторити ситуацію зі світлом (електроенергією) в ${params.place}.\n\n` +
-  `${MSG_LAUNCH_DOC_LINK}\n\n` +
   `За допомогою команди /current ти завжди можеш дізнатися чи є зараз на локації світло і як довго це триває.\n\n` +
   `Команда /subscribe дозволяє підписатися на сповіщення щодо зміни ситуації (відключення/включення).\n\n` +
   `За допомогою команди /stats можна переглянути статистику (звіт по включенням/` +
@@ -82,9 +81,7 @@ export const RESP_WAS_NOT_SUBSCRIBED = (params: { readonly place: string }) =>
   `Підписка і так відсутня, ти зараз не отримуєш повідомлення щодо зміни ситуації зі світлом в ${params.place}.`;
 export const RESP_ABOUT = (params: { readonly listedBotsMessage: string }) =>
   `Версія ${VERSION}\n\n` +
-  `Зроблено з ${EMOJ_HEART} @oleksandr_changli\n\n` +
-  `https://www.instagram.com/oleksandr_changli/\n\n` +
-  `${MSG_LAUNCH_DOC_LINK}\n\n` +
+  `Бота створено @oleksandr_changli, реанімовано @OmniGod\n\n` +
   params.listedBotsMessage +
   `Якщо тобі подобається цей бот - можеш подякувати донатом на підтримку української армії .\n\n`;
 export const RESP_ENABLED_SHORT = (params: {
