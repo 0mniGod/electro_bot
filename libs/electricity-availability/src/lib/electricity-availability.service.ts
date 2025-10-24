@@ -195,7 +195,7 @@ constructor(
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    // --- Перевірка замка ---
+    // --- Перевірка замка (залишається як є) ---
     if (ElectricityAvailabilityService.isCronRunning) {
         this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
         return;
@@ -204,10 +204,13 @@ constructor(
     this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
     // ----------------------
 
-    // !!! ОСЬ ЗМІНА: Викликаємо keep-alive пінг на початку !!!
-    await this.pingKoyebApp();
+    try {
+      
+      // !!! --- ОСЬ ЦЕЙ РЯДОК ПОТРІБНО ДОДАТИ --- !!!
+      // Спочатку "будимо" наш сервіс Koyeb
+      await this.pingKoyebApp();
+      // !!! ------------------------------------ !!!
 
-    try {
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
       
@@ -215,8 +218,9 @@ constructor(
         if (place && !place.isDisabled) { 
             this.logger.debug(`Cron: Checking place ${place.name}...`);
             
-            // !!! ОСЬ ЗМІНА: Викликаємо check() напряму, БЕЗ ПОВТОРНИХ СПРОБ !!!
-            const { isAvailable } = await this.check(place); 
+            // --- ВАША СТАРА ЛОГІКА ЗАЛИШАЄТЬСЯ БЕЗ ЗМІН ---
+            // (Викликаємо з 5-ма повторними спробами)
+            const { isAvailable } = await this.checkWithRetries(place); 
             
             await this.handleAvailabilityChange({ place, isAvailable });
         } else if (place) {
@@ -228,7 +232,7 @@ this.logger.verbose('Cron job "check-electricity-availability" finished.');
   } catch (error) {
      this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
   } finally {
-     // --- Відпускаємо замок ---
+     // --- Відпускаємо замок (залишається як є) ---
      ElectricityAvailabilityService.isCronRunning = false;
      this.logger.log('Cron job "check-electricity-availability" lock released.');
      // ------------------------
