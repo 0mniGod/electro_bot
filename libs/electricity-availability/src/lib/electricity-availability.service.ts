@@ -78,6 +78,30 @@ constructor(
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  private async pingKoyebApp(): Promise<void> {
+    // Беремо URL зі змінних оточення, які ви додали на Koyeb
+    const url = process.env.KOYEB_APP_URL; 
+    
+    if (!url) {
+        this.logger.warn('KOYEB_APP_URL is not set. Skipping keep-alive ping.');
+        return;
+    }
+
+    this.logger.verbose(`Sending keep-alive ping to ${url}...`);
+    try {
+        // Просто робимо GET-запит до себе
+        await firstValueFrom(
+            this.httpService.get(url, { 
+                timeout: 10000, // 10-секундний тайм-аут
+                headers: { 'User-Agent': 'Koyeb Electro Bot Keep-Alive' } 
+            })
+        );
+        this.logger.verbose('Keep-alive ping successful.');
+    } catch (error: any) {
+        this.logger.warn(`Keep-alive ping to ${url} failed. Error: ${error.message}`);
+    }
+  }
+  
   // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ ---
   private async checkWithRetries(place: Place): Promise<{
     readonly place: Place;
@@ -167,41 +191,48 @@ constructor(
   }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
-@Cron('*/3 * * * *', { // <-- ЗМІНЕНО НА КОЖНІ 3 ХВИЛИНИ
-    name: 'check-electricity-availability',
-  })
-  public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    // --- ПЕРЕВІРКА ЗАМКА ---
-    if (ElectricityAvailabilityService.isCronRunning) {
-        this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
-        return;
-    }
-    ElectricityAvailabilityService.isCronRunning = true;
-    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
-    // ----------------------
-    try {
-      const places = await this.placeRepository.getAllPlaces();
-      this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
-      
-      await Promise.all(places.map(async (place) => {
-        if (place && !place.isDisabled) { 
-            this.logger.debug(`Cron: Checking place ${place.name}...`);
-            const { isAvailable } = await this.checkWithRetries(place); // Викликаємо з повторними спробами
+@Cron('*/3 * * * *', { // Ваш розклад кожні 3 хвилини
+    name: 'check-electricity-availability',
+  })
+  public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
+    // --- Перевірка замка ---
+    if (ElectricityAvailabilityService.isCronRunning) {
+        this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
+        return;
+    }
+    ElectricityAvailabilityService.isCronRunning = true;
+    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
+    // ----------------------
+
+    // !!! ОСЬ ЗМІНА: Викликаємо keep-alive пінг на початку !!!
+    await this.pingKoyebApp();
+
+    try {
+      const places = await this.placeRepository.getAllPlaces();
+      this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
+      
+      await Promise.all(places.map(async (place) => {
+        if (place && !place.isDisabled) { 
+            this.logger.debug(`Cron: Checking place ${place.name}...`);
+            
+            // !!! ОСЬ ЗМІНА: Викликаємо check() напряму, БЕЗ ПОВТОРНИХ СПРОБ !!!
+            const { isAvailable } = await this.check(place); 
+            
             await this.handleAvailabilityChange({ place, isAvailable });
-        } else if (place) {
-            this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
-        }
-      }));
+        } else if (place) {
+            this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
+        }
+      }));
 
 this.logger.verbose('Cron job "check-electricity-availability" finished.');
-  } catch (error) {
-     this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
-  } finally {
-     // --- ВІДПУСКАЄМО ЗАМОК ---
-     ElectricityAvailabilityService.isCronRunning = false;
-     this.logger.log('Cron job "check-electricity-availability" lock released.');
-     // ------------------------
-  }
+  } catch (error) {
+     this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
+  } finally {
+     // --- Відпускаємо замок ---
+     ElectricityAvailabilityService.isCronRunning = false;
+     this.logger.log('Cron job "check-electricity-availability" lock released.');
+     // ------------------------
+  }
 }
 
 private async handleAvailabilityChange(params: {
