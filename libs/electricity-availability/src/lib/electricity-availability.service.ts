@@ -131,64 +131,175 @@ constructor(
   }
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
+/**
+   * Cервіс B: Перевірка через HackerTarget
+   */
+  private async checkViaHackerTarget(host: string): Promise<boolean> {
+    const url = `https://api.hackertarget.com/nping/?q=${host}`;
+    this.logger.verbose(`Starting PING check for ${host} via api.hackertarget.com...`);
+    
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          timeout: 15000, // Таймаут 15 секунд
+          headers: { 'User-Agent': 'Koyeb Electro Bot Check' }
+        })
+      );
 
-  // --- ОНОВЛЕНИЙ МЕТОД CHECK (використовує ViewDNS API) ---
-  private async check(place: Place): Promise<{
-    readonly place: Place;
-    readonly isAvailable: boolean;
-  }> {
-    const host = place.host;
+      const responseText = String(response.data);
+      
+      if (responseText.includes('Host is up')) {
+        this.logger.debug(`HackerTarget check successful for ${host}.`);
+        return true;
+      } else {
+        this.logger.warn(`HackerTarget check failed (Host not up or error) for ${host}.`);
+        return false;
+      }
+
+    } catch (error: any) {
+      this.logger.error(`HackerTarget check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Cервіс A: Перевірка через ViewDNS (це ваш старий код, перенесений сюди)
+   */
+  private async checkViaViewDNS(host: string): Promise<boolean> {
     const url = `https://api.viewdns.info/ping/v2/?host=${host}&apikey=${API_KEY}&output=json`;
-
     this.logger.verbose(`Starting PING check for ${host} via ViewDNS API...`);
-    let isAvailable = false; 
 
     try {
         const response = await firstValueFrom(
             this.httpService.get(url, { 
-                timeout: 15000, // Збільшуємо тайм-аут до 15 секунд
+                timeout: 15000, 
                 headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
             })
         );
         
         if (response.data && response.data.response && response.data.response.detail) {
-            // Шукаємо регіон "Europe"
             const europeRegion = response.data.response.detail.find(
                 (region: any) => region.region === 'Europe'
             );
 
             if (europeRegion && europeRegion.locations && europeRegion.locations.length > 0) {
-                // Перевіряємо, чи ХОЧА Б ОДНА європейська локація не має 100% втрат
                 const isAnyEuropeLocationOK = europeRegion.locations.some(
                     (loc: any) => loc.packet_loss !== '100%'
                 );
                 
                 if (isAnyEuropeLocationOK) {
-                    isAvailable = true;
-                    this.logger.debug(`PING check successful for ${host} from Europe.`);
+                    this.logger.debug(`ViewDNS check successful for ${host} from Europe.`);
+                    return true;
                 } else {
-                    isAvailable = false;
-                    this.logger.warn(`PING check failed (Europe locations reported packet loss) for ${host}.`);
+                    this.logger.warn(`ViewDNS check failed (Europe locations reported packet loss) for ${host}.`);
+                    return false;
                 }
             } else {
-                isAvailable = false;
-                this.logger.warn(`PING check failed (No 'Europe' region found in API response) for ${host}.`);
+                this.logger.warn(`ViewDNS check failed (No 'Europe' region found in API response) for ${host}.`);
+                return false;
             }
         } else {
-             isAvailable = false;
-             this.logger.error(`PING check via API failed (Invalid JSON response). Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
+            this.logger.error(`PING check via ViewDNS API failed (Invalid JSON response).`);
+            return false;
         }
     } catch (error: any) {
-        isAvailable = false;
         if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.response?.status === 504) {
-             this.logger.warn(`PING check via API timed out for ${host}. Assuming unavailable.`);
+            this.logger.warn(`PING check via ViewDNS API timed out for ${host}.`);
         } else {
-             this.logger.error(`PING check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+            this.logger.error(`PING check via ViewDNS API failed (HTTP Error) for ${host}. Error: ${error.message}`);
         }
+        return false;
+    }
+  }
+
+  /**
+   * Головний метод check, який тепер викликає A і B
+   */
+  private async check(place: Place): Promise<{
+    readonly place: Place;
+    readonly isAvailable: boolean;
+  }> {
+    const host = place.host;
+    this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + HackerTarget)`);
+
+    // Запускаємо обидві перевірки паралельно
+    const results = await Promise.allSettled([
+      this.checkViaViewDNS(host),      // Сервіс A
+      this.checkViaHackerTarget(host)  // Сервіс B
+    ]);
+
+    const isViewDNSOK = results[0].status === 'fulfilled' && results[0].value === true;
+    const isHackerTargetOK = results[1].status === 'fulfilled' && results[1].value === true;
+
+    // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
+    const isAvailable = isViewDNSOK || isHackerTargetOK;
+
+    if (isAvailable) {
+      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${isViewDNSOK}, HackerTarget: ${isHackerTargetOK})`);
+    } else {
+      this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${isViewDNSOK}, HackerTarget: ${isHackerTargetOK})`);
     }
 
     return { place, isAvailable };
   }
+
+  // --- ОНОВЛЕНИЙ МЕТОД CHECK (використовує ViewDNS API) ---
+  // private async check(place: Place): Promise<{
+  //   readonly place: Place;
+  //   readonly isAvailable: boolean;
+  // }> {
+  //   const host = place.host;
+  //   const url = `https://api.viewdns.info/ping/v2/?host=${host}&apikey=${API_KEY}&output=json`;
+
+  //   this.logger.verbose(`Starting PING check for ${host} via ViewDNS API...`);
+  //   let isAvailable = false; 
+
+  //   try {
+  //       const response = await firstValueFrom(
+  //           this.httpService.get(url, { 
+  //               timeout: 15000, // Збільшуємо тайм-аут до 15 секунд
+  //               headers: { 'User-Agent': 'Koyeb Electro Bot Check' } 
+  //           })
+  //       );
+        
+  //       if (response.data && response.data.response && response.data.response.detail) {
+  //           // Шукаємо регіон "Europe"
+  //           const europeRegion = response.data.response.detail.find(
+  //               (region: any) => region.region === 'Europe'
+  //           );
+
+  //           if (europeRegion && europeRegion.locations && europeRegion.locations.length > 0) {
+  //               // Перевіряємо, чи ХОЧА Б ОДНА європейська локація не має 100% втрат
+  //               const isAnyEuropeLocationOK = europeRegion.locations.some(
+  //                   (loc: any) => loc.packet_loss !== '100%'
+  //               );
+                
+  //               if (isAnyEuropeLocationOK) {
+  //                   isAvailable = true;
+  //                   this.logger.debug(`PING check successful for ${host} from Europe.`);
+  //               } else {
+  //                   isAvailable = false;
+  //                   this.logger.warn(`PING check failed (Europe locations reported packet loss) for ${host}.`);
+  //               }
+  //           } else {
+  //               isAvailable = false;
+  //               this.logger.warn(`PING check failed (No 'Europe' region found in API response) for ${host}.`);
+  //           }
+  //       } else {
+  //            isAvailable = false;
+  //            this.logger.error(`PING check via API failed (Invalid JSON response). Status: ${response.status}. Data: ${JSON.stringify(response.data)}`);
+  //       }
+  //   } catch (error: any) {
+  //       isAvailable = false;
+  //       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.response?.status === 504) {
+  //            this.logger.warn(`PING check via API timed out for ${host}. Assuming unavailable.`);
+  //       } else {
+  //            this.logger.error(`PING check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+  //       }
+  //   }
+
+  //   return { place, isAvailable };
+  // }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
 @Cron('*/3 * * * *', { // Ваш розклад кожні 3 хвилини
