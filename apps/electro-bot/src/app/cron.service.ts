@@ -13,10 +13,10 @@ export class CronService {
   ) {}
 
   // Every 2 minutes
-  @Cron('0 */2 * * * *')
-  public async checkElectricityAvailability(): Promise<void> {
-    await this.electricityAvailabilityService.checkAndSaveElectricityAvailabilityStateOfAllPlaces();
-  }
+  // @Cron('0 */2 * * * *')
+  // public async checkElectricityAvailability(): Promise<void> {
+  //   await this.electricityAvailabilityService.checkAndSaveElectricityAvailabilityStateOfAllPlaces();
+  // }
 
   // 10:00 every first day of the month
   @Cron('0 0 10 1 * *')
