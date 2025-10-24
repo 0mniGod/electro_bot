@@ -41,22 +41,26 @@ export class ElectricityAvailabilityService {
   private readonly logger = new Logger(
     ElectricityAvailabilityService.name
   );
+  // --- ДОДАНО ЗАМОК (LOCK) ---
+  private static isCronRunning = false; 
+  // ---------------------------
+  
   private readonly place$ = new Subject<Place>();
   private readonly forceCheck$ = new Subject<Place>();
 
-  public readonly availabilityChange$ = zip(
-    this.place$,
-    timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // Повертаємо числовий інтервал
-  ).pipe(
-    map(([place]) => place),
-    filter((place) => place && !place.isDisabled),
-    switchMap((place) => this.checkWithRetries(place)), // Викликаємо checkWithRetries
-    distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
-    map(({ place, isAvailable }) => {
-      this.handleAvailabilityChange({ place, isAvailable });
-      return { placeId: place.id };
-    })
-  );
+  // public readonly availabilityChange$ = zip(
+  //   this.place$,
+  //   timer(0, CHECK_INTERVAL_IN_MINUTES * 60 * 1000) // Повертаємо числовий інтервал
+  // ).pipe(
+  //   map(([place]) => place),
+  //   filter((place) => place && !place.isDisabled),
+  //   switchMap((place) => this.checkWithRetries(place)), // Викликаємо checkWithRetries
+  //   distinctUntilChanged((prev, curr) => prev.isAvailable === curr.isAvailable),
+  //   map(({ place, isAvailable }) => {
+  //     this.handleAvailabilityChange({ place, isAvailable });
+  //     return { placeId: place.id };
+  //   })
+  // );
 
 constructor(
   private readonly electricityRepository: ElectricityRepository,
@@ -65,14 +69,8 @@ constructor(
   @Inject(forwardRef(() => NotificationBotService)) // <-- ВИПРАВЛЕНО
   private readonly notificationBotService: NotificationBotService
 ) {
-    this.availabilityChange$.subscribe(
-        (data) => {
-            this.logger.debug(`Availability change processed for placeId: ${data.placeId}`);
-        },
-        (error) => {
-            this.logger.error(`Error in availabilityChange$ stream: ${error}`, error instanceof Error ? error.stack : undefined);
-        }
-    );
+    // this.availabilityChange$.subscribe(); // <-- ВИМКНЕНО
+    this.logger.log("ElectricityAvailabilityService initialized (availabilityChange$ stream disabled, using Cron only).");
   }
 
   // --- НОВИЙ ДОПОМІЖНИЙ МЕТОД ---
@@ -85,8 +83,8 @@ constructor(
     readonly place: Place;
     readonly isAvailable: boolean;
   }> {
-    const retries = 3; // 3 спроби
-    const delay = 5000; // 5 секунд між спробами
+    const retries = 5; // 5 спроби
+    const delay = 10000; // 10 секунд між спробами
 
     for (let i = 1; i <= retries; i++) {
       this.logger.verbose(`Check attempt ${i}/${retries} for ${place.host}`);
@@ -169,11 +167,18 @@ constructor(
   }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
-  @Cron(CronExpression.EVERY_MINUTE, { // Використовуємо EVERY_MINUTE
+@Cron('*/3 * * * *', { // <-- ЗМІНЕНО НА КОЖНІ 3 ХВИЛИНИ
     name: 'check-electricity-availability',
   })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    this.logger.verbose('Cron job "check-electricity-availability" (checkAndSave...) started.');
+    // --- ПЕРЕВІРКА ЗАМКА ---
+    if (ElectricityAvailabilityService.isCronRunning) {
+        this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
+        return;
+    }
+    ElectricityAvailabilityService.isCronRunning = true;
+    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
+    // ----------------------
     try {
       const places = await this.placeRepository.getAllPlaces();
       this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
@@ -188,11 +193,16 @@ constructor(
         }
       }));
 
-      this.logger.verbose('Cron job "check-electricity-availability" finished.');
-    } catch (error) {
-       this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
-    }
+this.logger.verbose('Cron job "check-electricity-availability" finished.');
+  } catch (error) {
+     this.logger.error(`Cron: Failed to load places or check availability: ${error}`, error instanceof Error ? error.stack : undefined);
+  } finally {
+     // --- ВІДПУСКАЄМО ЗАМОК ---
+     ElectricityAvailabilityService.isCronRunning = false;
+     this.logger.log('Cron job "check-electricity-availability" lock released.');
+     // ------------------------
   }
+}
 
 private async handleAvailabilityChange(params: {
   readonly place: Place;
