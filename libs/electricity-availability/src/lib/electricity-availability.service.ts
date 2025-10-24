@@ -132,11 +132,11 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через check-host.net (з НАДІЙНИМ "терплячим" пулінгом)
+   * Cервіс B: Перевірка через check-host.net (з ДЕТАЛЬНИМ ЛОГУВАННЯМ)
    */
   private async checkViaCheckHost(host: string): Promise<boolean> {
-    this.logger.verbose(`Starting PING check for ${host} via check-host.net (EU)...`);
-    
+    this.logger.verbose(`[CheckHost] Starting PING check for ${host} (EU)...`);
+
     // --- 1. Визначимо вузли ---
     const nodes = ['de1.node.check-host.net', 'fr1.node.check-host.net', 'pl1.node.check-host.net'];
     
@@ -146,38 +146,45 @@ constructor(
     let requestId: string;
 
     try {
+      this.logger.debug(`[CheckHost] Requesting check via URL: ${requestUrl}`);
       const requestResponse = await firstValueFrom(
         this.httpService.get(requestUrl, {
           timeout: 10000,
-          headers: { 'Accept': 'application/json' }
+          // !!! ЗАГОЛОВОК !!! Відповідаю на ваше запитання:
+          // Ми використовуємо Accept: application/json, як вимагає API.
+          // Жодного "adress = ..." тут не потрібно.
+          headers: { 'Accept': 'application/json' } 
         })
       );
-      if (requestResponse.data.ok === 1) {
+      
+      // *** ЛОГУЄМО ВІДПОВІДЬ НА ЗАПИТ ***
+      this.logger.debug(`[CheckHost] Request Response Data: ${JSON.stringify(requestResponse.data)}`);
+
+      if (requestResponse.data.ok === 1 && requestResponse.data.request_id) {
         requestId = requestResponse.data.request_id;
+        this.logger.log(`[CheckHost] Got request_id: ${requestId}`);
       } else {
-        throw new Error(requestResponse.data.error || 'Failed to request check');
+        throw new Error(requestResponse.data.error || 'Failed to request check (Invalid response)');
       }
     } catch (error: any) {
-      this.logger.error(`check-host.net (Request) failed: ${error.message}`);
+      this.logger.error(`[CheckHost] (Request phase) FAILED: ${error.message}`);
       return false; // Провал на етапі 1
     }
 
-    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Starting polling (max 30s)...`);
+    this.logger.verbose(`[CheckHost] Starting polling for ${requestId} (max 30s)...`);
     
-    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ (опитування) ---
+    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ (з логуванням) ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
-    
-    // 5 спроб по 6 секунд = 30 секунд загального часу
     const maxAttempts = 5; 
-    const pollInterval = 10000; // 6 секунд
+    const pollInterval = 6000; // 6 секунд
 
     for (let i = 1; i <= maxAttempts; i++) {
-      // Чекаємо 6 секунд ПЕРЕД кожним запитом (включно з першим)
       await this.sleep(pollInterval); 
-      this.logger.verbose(`check-host.net: Poll attempt ${i}/${maxAttempts} for ${requestId}...`);
+      this.logger.verbose(`[CheckHost] Poll attempt ${i}/${maxAttempts} for ${requestId}...`);
 
       let results;
       try {
+        this.logger.debug(`[CheckHost] Polling results via URL: ${resultUrl}`);
         const resultResponse = await firstValueFrom(
           this.httpService.get(resultUrl, {
             timeout: 10000,
@@ -185,33 +192,60 @@ constructor(
           })
         );
         results = resultResponse.data;
+        
+        // *** ЛОГУЄМО ОТРИМАНИЙ РЕЗУЛЬТАТ ***
+        this.logger.debug(`[CheckHost] Poll Response Data (attempt ${i}): ${JSON.stringify(results)}`);
 
       } catch (error: any) {
-        this.logger.warn(`check-host.net (Polling attempt ${i}) http error: ${error.message}`);
+        this.logger.warn(`[CheckHost] (Polling attempt ${i}) http error: ${error.message}`);
         continue; // Помилка http, але ми продовжуємо цикл
       }
 
       // 1. ПЕРЕВІРЯЄМО НА "OK" (УСПІХ)
       if (results) { 
+        let foundOK = false;
         for (const node of nodes) {
-          // Шукаємо [ "OK", ... ]
           if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
-            this.logger.debug(`check-host.net check successful from ${node}.`);
-            return true; // !!! УСПІХ! Негайно виходимо.
+            this.logger.log(`[CheckHost] >>> SUCCESS found on attempt ${i} from node ${node}!`);
+            foundOK = true;
+            break; // Знайшли "OK", виходимо з внутрішнього циклу for
+          }
+        }
+        if (foundOK) {
+            return true; // !!! УСПІХ! Виходимо з функції.
+        }
+      }
+
+      // 2. "OK" НЕ ЗНАЙДЕНО НА ЦІЙ СПРОБІ.
+      //    Перевіряємо, чи тест *точно* завершився з помилкою,
+      //    чи він ще триває.
+
+      // 2a. Перевіряємо, чи всі вузли вже відзвітували
+      let allNodesReported = results !== null;
+      if (allNodesReported) {
+        for (const node of nodes) {
+          if (!results[node]) { // Якщо `results['de1...']` не існує
+            allNodesReported = false;
+            break; 
           }
         }
       }
 
-      // 2. "OK" НЕ ЗНАЙДЕНО.
-      //    Просто логуємо і йдемо на наступну ітерацію.
-      //    Ми не виходимо з `false` до самого кінця.
+      // 2b. Всі вузли відзвітували, але "OK" не було (значить, TIMEOUT)
+      if (allNodesReported) {
+        this.logger.warn(`[CheckHost] Test COMPLETED on attempt ${i}, but no 'OK' found (result was TIMEOUT/FAILED).`);
+        return false; // !!! ПРОВАЛ! Тест завершено з помилкою.
+      }
+      
+      // 2c. Тест ще триває (null або не всі вузли)
       if (i < maxAttempts) {
-        this.logger.verbose(`check-host.net: No "OK" found on attempt ${i}. Continuing poll...`);
+        this.logger.verbose(`[CheckHost] Results not complete on attempt ${i}. Continuing poll...`);
+        // Цикл for автоматично продовжиться
       }
     }
 
     // 3. (Провал) Ми вийшли з циклу (пройшли всі 5 спроб)
-    this.logger.error(`check-host.net FAILED: Polling timed out after 30s.`);
+    this.logger.error(`[CheckHost] FAILED: Polling timed out after 30s.`);
     return false;
   }
   
