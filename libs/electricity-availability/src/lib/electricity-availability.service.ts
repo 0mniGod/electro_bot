@@ -169,7 +169,7 @@ constructor(
     
     // 5 спроб по 6 секунд = 30 секунд загального часу
     const maxAttempts = 5; 
-    const pollInterval = 6000; // 6 секунд
+    const pollInterval = 10000; // 6 секунд
 
     for (let i = 1; i <= maxAttempts; i++) {
       // Чекаємо 6 секунд ПЕРЕД кожним запитом (включно з першим)
