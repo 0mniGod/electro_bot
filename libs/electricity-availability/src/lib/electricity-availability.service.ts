@@ -134,9 +134,9 @@ constructor(
             );
 
             if (europeRegion && europeRegion.locations && europeRegion.locations.length > 0) {
-                // Перевіряємо, чи ХОЧА Б ОДНА європейська локація має 0% втрат
+                // Перевіряємо, чи ХОЧА Б ОДНА європейська локація не має 100% втрат
                 const isAnyEuropeLocationOK = europeRegion.locations.some(
-                    (loc: any) => loc.packet_loss === '0%'
+                    (loc: any) => loc.packet_loss !== '100%'
                 );
                 
                 if (isAnyEuropeLocationOK) {
