@@ -17,8 +17,7 @@ export const EMOJ_CROSSED_FINGERS = emoji.get('crossed_fingers');
 export const EMOJ_SYMBOLS_OVER_MOUTH = emoji.get('symbols_over_mouth');
 
 export const MSG_DISABLED_REGULAR_SUFFIX =
-  'Не забувай підтримувати українську армію!\n' +
-  'Ось один із зручних способів зробити донат: .';
+  'Не забувай підтримувати українську армію!\n';
 
 export const MSG_LAUNCH_DOC_LINK =
   '<a href="https://zd333.github.io/electro_bot/doc/launch-bot-for-my-place.html">Як ти можеш запустити такого бота для власної локації без всякого програмування</a>';
@@ -34,9 +33,9 @@ export const RESP_START = (params: {
   `За допомогою команди /stats можна переглянути статистику (звіт по включенням/` +
   `відключенням за поточну і попередню добу, сумарний час наявності/відсутності світла).\n\n` +
   `Контроль наявності світла відбувається за допомогою перевірки Інтернет зв‘язку з провайдером ${params.place}. Зауваж, що в разі проблем з Інтернетом бот може видавати невірну інформацію.\n\n` +
-  `Зроблено з ${EMOJ_HEART} @oleksandr_changli\n\n` +
+  `Зроблено з ${EMOJ_HEART} @oleksandr_changli, бота реанімовано @OmniGad\n\n` +
   params.listedBotsMessage +
-  `${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
+  `   `;
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
   `Нажаль, наразі інформація щодо наявності світла в ${params.place} відсутня.`;
 export const RESP_CURRENTLY_AVAILABLE = (params: {
@@ -99,7 +98,7 @@ export const RESP_ENABLED_SHORT = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\nСлава Україні! ${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
+  `\nСлава Україні!    `;
 export const RESP_DISABLED_SHORT = (params: {
   readonly when: string;
   readonly place: string;
@@ -125,7 +124,7 @@ export const RESP_ENABLED_DETAILED = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\nСлава Україні! ${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
+  `\nСлава Україні!    `;
 export const RESP_ENABLED_SUSPICIOUS = (params: {
   readonly when: string;
   readonly place: string;
@@ -162,7 +161,7 @@ export const RESP_PREVIOUS_MONTH_SUMMARY = (params: {
   `Не сумуй, що час пролетів так швидко, адже тепер ми на місяць ближче до Перемоги!\n\n` +
   `Посміхайся, радій життю та не забувай підтримувати Українську Армію${EMOJ_HEART}!\n\n` +
   `${EMOJ_KISS_HEART}${EMOJ_KISS_HEART}${EMOJ_KISS_HEART}\n` +
-  `${EMOJ_UA}${EMOJ_UA}${EMOJ_UA}`;
+  `   `;
 export const MSG_DISABLED =
   'Бот відключено адміністратором, зверніться до власника бота.\n';
 export const EXPECTED_ENABLE_MOMENT = (params: {
