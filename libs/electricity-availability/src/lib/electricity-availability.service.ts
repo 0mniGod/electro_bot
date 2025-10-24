@@ -132,32 +132,71 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через HackerTarget
+   * Cервіс B: Перевірка через check-host.net (тільки вузли ЄС)
    */
-  private async checkViaHackerTarget(host: string): Promise<boolean> {
-    const url = `https://api.hackertarget.com/nping/?q=${host}`;
-    this.logger.verbose(`Starting PING check for ${host} via api.hackertarget.com...`);
+  private async checkViaCheckHost(host: string): Promise<boolean> {
+    this.logger.verbose(`Starting PING check for ${host} via check-host.net (EU)...`);
     
+    // 1. Запитуємо перевірку з конкретних вузлів у Європі
+    const nodes = ['de1.node.check-host.net', 'fr1.node.check-host.net', 'pl1.node.check-host.net'];
+    const nodeParams = nodes.map(n => `node=${n}`).join('&');
+    const requestUrl = `https://check-host.net/check-ping?host=${host}&${nodeParams}`;
+
+    let requestId: string;
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(url, {
-          timeout: 15000, // Таймаут 15 секунд
-          headers: { 'User-Agent': 'Koyeb Electro Bot Check' }
+      const requestResponse = await firstValueFrom(
+        this.httpService.get(requestUrl, {
+          timeout: 10000,
+          headers: { 'Accept': 'application/json' } // API вимагає цей заголовок
         })
       );
 
-      const responseText = String(response.data);
-      
-      if (responseText.includes('Host is up')) {
-        this.logger.debug(`HackerTarget check successful for ${host}.`);
-        return true;
+      if (requestResponse.data.ok === 1) {
+        requestId = requestResponse.data.request_id;
       } else {
-        this.logger.warn(`HackerTarget check failed (Host not up or error) for ${host}.`);
+        throw new Error(requestResponse.data.error || 'Failed to request check');
+      }
+    } catch (error: any) {
+      this.logger.error(`check-host.net (Request) failed: ${error.message}`);
+      return false;
+    }
+
+    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Waiting 10s for results...`);
+    
+    // 2. Чекаємо 10 секунд, поки пройде тест
+    // (Ping-тести не миттєві)
+    await this.sleep(10000); 
+
+    // 3. Запитуємо результати
+    try {
+      const resultUrl = `https://check-host.net/check-result/${requestId}`;
+      const resultResponse = await firstValueFrom(
+        this.httpService.get(resultUrl, {
+          timeout: 10000,
+          headers: { 'Accept': 'application/json' }
+        })
+      );
+
+      const results = resultResponse.data;
+      if (!results) {
+        this.logger.warn(`check-host.net (Result) returned empty data.`);
         return false;
       }
 
+      // 4. Перевіряємо, чи хоча б один вузол в ЄС отримав "OK"
+      for (const node of nodes) {
+        // Успішний результат виглядає так: "de1.node...": [ [ "OK", ... ] ]
+        if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
+          this.logger.debug(`check-host.net check successful from ${node}.`);
+          return true; // Знайшли! Світло є.
+        }
+      }
+      
+      this.logger.warn(`check-host.net check FAILED (No OK from EU nodes).`);
+      return false; // Жоден з вузлів ЄС не відповів
+
     } catch (error: any) {
-      this.logger.error(`HackerTarget check via API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+      this.logger.error(`check-host.net (Result) failed: ${error.message}`);
       return false;
     }
   }
@@ -215,29 +254,32 @@ constructor(
   /**
    * Головний метод check, який тепер викликає A і B
    */
-  private async check(place: Place): Promise<{
+ private async check(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean;
   }> {
     const host = place.host;
-    this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + HackerTarget)`);
+    this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + CheckHost.net)`); // <-- Оновлено лог
 
     // Запускаємо обидві перевірки паралельно
     const results = await Promise.allSettled([
-      this.checkViaViewDNS(host),      // Сервіс A
-      this.checkViaHackerTarget(host)  // Сервіс B
+      this.checkViaViewDNS(host),      // Сервіс A (Європа)
+      this.checkViaCheckHost(host)     // <-- ЗМІНЕНО (Сервіс B, теж Європа)
     ]);
 
+    // Аналізуємо результати
     const isViewDNSOK = results[0].status === 'fulfilled' && results[0].value === true;
-    const isHackerTargetOK = results[1].status === 'fulfilled' && results[1].value === true;
+    const isCheckHostOK = results[1].status === 'fulfilled' && results[1].value === true; // <-- ЗМІНЕНО
 
     // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
-    const isAvailable = isViewDNSOK || isHackerTargetOK;
+    const isAvailable = isViewDNSOK || isCheckHostOK; // <-- ЗМІНЕНО
 
     if (isAvailable) {
-      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${isViewDNSOK}, HackerTarget: ${isHackerTargetOK})`);
+      // Оновлено лог
+      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${isViewDNSOK}, CheckHost: ${isCheckHostOK})`);
     } else {
-      this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${isViewDNSOK}, HackerTarget: ${isHackerTargetOK})`);
+      // Оновлено лог
+      this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${isViewDNSOK}, CheckHost: ${isCheckHostOK})`);
     }
 
     return { place, isAvailable };
