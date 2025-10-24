@@ -33,7 +33,7 @@ export const RESP_START = (params: {
   `За допомогою команди /stats можна переглянути статистику (звіт по включенням/` +
   `відключенням за поточну і попередню добу, сумарний час наявності/відсутності світла).\n\n` +
   `Контроль наявності світла відбувається за допомогою перевірки Інтернет зв‘язку з провайдером ${params.place}. Зауваж, що в разі проблем з Інтернетом бот може видавати невірну інформацію.\n\n` +
-  `Зроблено з ${EMOJ_HEART} @oleksandr_changli, бота реанімовано @OmniGad\n\n` +
+  `Бота створено @oleksandr_changli, реанімовано @OmniGod\n\n` +
   params.listedBotsMessage +
   `   `;
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
