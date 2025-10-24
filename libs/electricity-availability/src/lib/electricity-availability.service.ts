@@ -132,22 +132,24 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через check-host.net (тільки вузли ЄС)
+   * Cервіс B: Перевірка через check-host.net (з пулінгом)
    */
   private async checkViaCheckHost(host: string): Promise<boolean> {
     this.logger.verbose(`Starting PING check for ${host} via check-host.net (EU)...`);
     
-    // 1. Запитуємо перевірку з конкретних вузлів у Європі
+    // --- 1. Визначимо вузли ---
     const nodes = ['de1.node.check-host.net', 'fr1.node.check-host.net', 'pl1.node.check-host.net'];
+    
+    // --- 2. Запит на перевірку (залишається як було) ---
     const nodeParams = nodes.map(n => `node=${n}`).join('&');
     const requestUrl = `https://check-host.net/check-ping?host=${host}&${nodeParams}`;
-
     let requestId: string;
+
     try {
       const requestResponse = await firstValueFrom(
         this.httpService.get(requestUrl, {
           timeout: 10000,
-          headers: { 'Accept': 'application/json' } // API вимагає цей заголовок
+          headers: { 'Accept': 'application/json' }
         })
       );
 
@@ -161,44 +163,63 @@ constructor(
       return false;
     }
 
-    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Waiting 10s for results...`);
+    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Starting polling (max 25s)...`);
     
-    // 2. Чекаємо 10 секунд, поки пройде тест
-    // (Ping-тести не миттєві)
-    await this.sleep(10000); 
+    // --- 3. ОНОВЛЕНА ЛОГІКА: Очікування та отримання результату (з пулінгом) ---
+    const resultUrl = `https://check-host.net/check-result/${requestId}`;
+    const maxAttempts = 5; // 5 спроб
+    const pollInterval = 5000; // 5 секунд (5 * 5 = 25 сек загалом)
 
-    // 3. Запитуємо результати
-    try {
-      const resultUrl = `https://check-host.net/check-result/${requestId}`;
-      const resultResponse = await firstValueFrom(
-        this.httpService.get(resultUrl, {
-          timeout: 10000,
-          headers: { 'Accept': 'application/json' }
-        })
-      );
+    for (let i = 1; i <= maxAttempts; i++) {
+      // Чекаємо 5 секунд перед кожною спробою
+      await this.sleep(pollInterval); 
+      this.logger.verbose(`check-host.net: Poll attempt ${i}/${maxAttempts} for ${requestId}...`);
 
-      const results = resultResponse.data;
-      if (!results) {
-        this.logger.warn(`check-host.net (Result) returned empty data.`);
-        return false;
-      }
+      try {
+        const resultResponse = await firstValueFrom(
+          this.httpService.get(resultUrl, {
+            timeout: 10000,
+            headers: { 'Accept': 'application/json' }
+          })
+        );
+        
+        const results = resultResponse.data;
 
-      // 4. Перевіряємо, чи хоча б один вузол в ЄС отримав "OK"
-      for (const node of nodes) {
-        // Успішний результат виглядає так: "de1.node...": [ [ "OK", ... ] ]
-        if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
-          this.logger.debug(`check-host.net check successful from ${node}.`);
-          return true; // Знайшли! Світло є.
+        // Випадок 1: Тест ще виконується (результат `null`)
+        if (results === null) {
+          this.logger.verbose(`check-host.net: Results not ready yet.`);
+          // `continue` переходить до наступної ітерації циклу (чекаємо ще 5 сек)
+          continue; 
         }
-      }
-      
-      this.logger.warn(`check-host.net check FAILED (No OK from EU nodes).`);
-      return false; // Жоден з вузлів ЄС не відповів
 
-    } catch (error: any) {
-      this.logger.error(`check-host.net (Result) failed: ${error.message}`);
-      return false;
+        // Випадок 2: Результат отримано (не null)
+        if (!results) {
+          this.logger.warn(`check-host.net (Result) returned empty data.`);
+          return false; // Тест провалився, виходимо
+        }
+
+        // Випадок 3: Аналізуємо готовий результат
+        for (const node of nodes) {
+          // Шукаємо [ "OK", ... ]
+          if (results[node] && results[node][0] && results[node][0][0] === 'OK') {
+            this.logger.debug(`check-host.net check successful from ${node}.`);
+            return true; // УСПІХ! Виходимо
+          }
+        }
+
+        // Випадок 4: Результат готовий, але там немає "OK" (тобто, TIMEOUT)
+        this.logger.warn(`check-host.net check FAILED (No OK from EU nodes). Results received.`);
+        return false; // ПРОВАЛ! Виходимо
+
+      } catch (error: any) {
+        this.logger.warn(`check-host.net (Polling attempt ${i}) failed: ${error.message}`);
+        // Не виходимо, даємо циклу спробувати ще
+      }
     }
+
+    // Випадок 5: Цикл завершився (вийшов час 25 сек)
+    this.logger.error(`check-host.net FAILED: Polling timed out after ${maxAttempts * pollInterval / 1000}s.`);
+    return false;
   }
 
   /**
