@@ -132,7 +132,7 @@ constructor(
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
 /**
-   * Cервіс B: Перевірка через check-host.net (з 10-сек. очікуванням + пулінгом)
+   * Cервіс B: Перевірка через check-host.net (з НАДІЙНИМ "терплячим" пулінгом)
    */
   private async checkViaCheckHost(host: string): Promise<boolean> {
     this.logger.verbose(`Starting PING check for ${host} via check-host.net (EU)...`);
@@ -162,24 +162,22 @@ constructor(
       return false; // Провал на етапі 1
     }
 
-    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Waiting 10s before first poll...`);
+    this.logger.verbose(`check-host.net: Got request_id ${requestId}. Starting polling (max 30s)...`);
     
-    // --- 3. ВАША ІДЕЯ: Початкове очікування 10 секунд ---
-    await this.sleep(10000); 
-
-    // --- 4. КОРЕКТНА ЛОГІКА ПУЛІНГУ (опитування) ---
+    // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ (опитування) ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
     
-    // Ми зробимо ще 4 спроби з інтервалом 5 секунд (10 + 4*5 = 30 сек загалом)
-    const maxAttempts = 4; 
-    const pollInterval = 5000; // 5 секунд
+    // 5 спроб по 6 секунд = 30 секунд загального часу
+    const maxAttempts = 5; 
+    const pollInterval = 6000; // 6 секунд
 
     for (let i = 1; i <= maxAttempts; i++) {
+      // Чекаємо 6 секунд ПЕРЕД кожним запитом (включно з першим)
+      await this.sleep(pollInterval); 
       this.logger.verbose(`check-host.net: Poll attempt ${i}/${maxAttempts} for ${requestId}...`);
 
       let results;
       try {
-        // Отримуємо результат
         const resultResponse = await firstValueFrom(
           this.httpService.get(resultUrl, {
             timeout: 10000,
@@ -190,9 +188,7 @@ constructor(
 
       } catch (error: any) {
         this.logger.warn(`check-host.net (Polling attempt ${i}) http error: ${error.message}`);
-        // Якщо помилка http, чекаємо і пробуємо знову
-        await this.sleep(pollInterval);
-        continue; 
+        continue; // Помилка http, але ми продовжуємо цикл
       }
 
       // 1. ПЕРЕВІРЯЄМО НА "OK" (УСПІХ)
@@ -206,38 +202,16 @@ constructor(
         }
       }
 
-      // 2. Якщо ми тут, значить "OK" ще не знайдено.
-      //    Перевіряємо, чи тест завершився (повернув TIMEOUT)
-      //    або він ще триває (повернув null / не всі вузли).
-
-      // 2a. Перевіряємо, чи всі вузли вже відзвітували
-      let allNodesReported = results !== null; // Якщо не null, то принаймні об'єкт
-      if (allNodesReported) {
-        for (const node of nodes) {
-          if (!results[node]) { // Якщо `results['de1...']` не існує
-            allNodesReported = false;
-            break; 
-          }
-        }
-      }
-
-      // 2b. Всі вузли відзвітували, але "OK" не було (значить, TIMEOUT)
-      if (allNodesReported) {
-        this.logger.warn(`check-host.net check FAILED (All nodes reported, but no OK).`);
-        return false; // !!! ПРОВАЛ! Тест завершено з помилкою.
-      }
-      
-      // 2c. Тест ще триває (null або не всі вузли)
-      // (і це не остання спроба)
+      // 2. "OK" НЕ ЗНАЙДЕНО.
+      //    Просто логуємо і йдемо на наступну ітерацію.
+      //    Ми не виходимо з `false` до самого кінця.
       if (i < maxAttempts) {
-        this.logger.verbose(`check-host.net: Results not ready yet. Continuing poll...`);
-        await this.sleep(pollInterval);
-        continue;
+        this.logger.verbose(`check-host.net: No "OK" found on attempt ${i}. Continuing poll...`);
       }
     }
 
-    // 3. (Провал) Ми вийшли з циклу (пройшов весь час)
-    this.logger.error(`check-host.net FAILED: Polling timed out.`);
+    // 3. (Провал) Ми вийшли з циклу (пройшли всі 5 спроб)
+    this.logger.error(`check-host.net FAILED: Polling timed out after 30s.`);
     return false;
   }
   
