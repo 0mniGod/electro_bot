@@ -37,14 +37,17 @@ const CHECK_INTERVAL_IN_MINUTES = 2; // Частота перевірки Cron
 const API_KEY = 'demo'; // Використовуємо демонстраційний ключ
 
 @Injectable()
-export class ElectricityAvailabilityService {
+export class ElectricityAvailabilityService implements OnModuleInit { // Додали OnModuleInit
   private readonly logger = new Logger(
     ElectricityAvailabilityService.name
   );
-  // --- ДОДАНО ЗАМОК (LOCK) ---
-  private static isCronRunning = false; 
-  // ---------------------------
-  
+  private static isCronRunning = false;
+
+  // --- ДОДАЄМО ВЛАСТИВОСТІ ДЛЯ КЕШУ ---
+  private cachedPlaces: Place[] = []; // Кеш для місць
+  private lastKnownStatus: Record<string, boolean> = {}; // Кеш для останнього стану { placeId: isAvailable }
+  // --- КІНЕЦЬ ДОДАНИХ ВЛАСТИВОСТЕЙ ---
+
   private readonly place$ = new Subject<Place>();
   private readonly forceCheck$ = new Subject<Place>();
 
@@ -72,6 +75,58 @@ constructor(
     // this.availabilityChange$.subscribe(); // <-- ВИМКНЕНО
     this.logger.log("ElectricityAvailabilityService initialized (availabilityChange$ stream disabled, using Cron only).");
   }
+
+// --- ДОДАЄМО МЕТОД onModuleInit ---
+  async onModuleInit(): Promise<void> {
+    this.logger.log('ElectricityAvailabilityService onModuleInit started.');
+    // Викликаємо оновлення кешу при старті програми
+    await this.refreshInternalCache();
+    this.logger.log('ElectricityAvailabilityService onModuleInit finished.');
+  }
+  // --- КІНЕЦЬ МЕТОДУ onModuleInit ---
+
+
+  // --- ДОДАЄМО МЕТОД ОНОВЛЕННЯ КЕШУ ---
+  /**
+   * Завантажує список місць та їх останній відомий стан з БД у кеш пам'яті.
+   * Викликається при старті та за командою /update.
+   */
+  public async refreshInternalCache(): Promise<void> {
+    this.logger.log('[Cache] Starting internal cache refresh...');
+    try {
+      // 1. Завантажуємо актуальний список місць з БД
+      const placesFromDb = await this.placeRepository.getAllPlaces();
+      this.cachedPlaces = placesFromDb; // Оновлюємо кеш місць
+      this.logger.log(`[Cache] Loaded ${this.cachedPlaces.length} places.`);
+
+      // 2. Очищуємо старий кеш статусів, щоб видалити неактуальні місця
+      const newStatusCache: Record<string, boolean> = {};
+
+      // 3. Завантажуємо останній стан для кожного АКТУАЛЬНОГО місця
+      const statusPromises = this.cachedPlaces.map(async (place) => {
+        // Запит до БД для отримання останнього стану
+        const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+        if (latest) {
+          newStatusCache[place.id] = latest.is_available; // Записуємо в новий кеш
+        } else {
+          // Якщо історії немає, вважаємо початковий стан false
+          newStatusCache[place.id] = false;
+          this.logger.warn(`[Cache] No history found for place ${place.id}, assuming initial status false.`);
+        }
+      });
+      await Promise.all(statusPromises);
+
+      // 4. Оновлюємо кеш статусів
+      this.lastKnownStatus = newStatusCache;
+      this.logger.log(`[Cache] Initialized/Updated last known statuses for ${Object.keys(this.lastKnownStatus).length} places.`);
+
+    } catch (error) {
+      this.logger.error(`[Cache] Failed to refresh internal cache: ${error}`, error instanceof Error ? error.stack : undefined);
+      // При помилці НЕ очищуємо старий кеш, щоб зберегти хоч якісь дані
+    }
+    this.logger.log('[Cache] Internal cache refresh finished.');
+  }
+  // --- КІНЕЦЬ МЕТОДУ ОНОВЛЕННЯ КЕШУ ---  
 
   // --- НОВИЙ ДОПОМІЖНИЙ МЕТОД ---
   private async sleep(ms: number): Promise<void> {
@@ -385,42 +440,74 @@ constructor(
   // }
   // --- КІНЕЦЬ МЕТОДУ CHECK ---
 
-@Cron('*/3 * * * *', { // Ваш розклад кожні 3 хвилини
-    name: 'check-electricity-availability',
-  })
-  public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
-    // --- Перевірка замка (залишається як є) ---
-    if (ElectricityAvailabilityService.isCronRunning) {
-        this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
-        return;
-    }
-    ElectricityAvailabilityService.isCronRunning = true;
-    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
-    // ----------------------
+@Cron('*/3 * * * *', {
+    name: 'check-electricity-availability',
+  })
+  public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
+    if (ElectricityAvailabilityService.isCronRunning) {
+      this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
+      return;
+    }
+    ElectricityAvailabilityService.isCronRunning = true;
+    this.logger.log('Cron job "check-electricity-availability" (checkAndSave...) started.');
+
+    await this.pingKoyebApp(); // Залишається
 
     try {
-      
-      // !!! --- ОСЬ ЦЕЙ РЯДОК ПОТРІБНО ДОДАТИ --- !!!
-      // Спочатку "будимо" наш сервіс Koyeb
-      await this.pingKoyebApp();
-      // !!! ------------------------------------ !!!
+      // --- ВИКОРИСТОВУЄМО КЕШ МІСЦЬ ---
+      const placesToCheck = this.cachedPlaces;
+      // Перевірка, чи кеш не порожній (на випадок помилки при старті)
+      if (!placesToCheck || placesToCheck.length === 0) {
+          this.logger.warn('[Cron] Cached places list is empty. Attempting to refresh cache now...');
+          await this.refreshInternalCache(); // Спробуємо оновити кеш
+          // Повторно отримуємо дані з кешу після оновлення
+          const refreshedPlaces = this.cachedPlaces;
+          if (!refreshedPlaces || refreshedPlaces.length === 0) {
+              this.logger.error('[Cron] Failed to load places even after cache refresh. Skipping check cycle.');
+              return; // Виходимо, якщо кеш все ще порожній
+          }
+           this.logger.debug(`[Cron] Using ${refreshedPlaces.length} places from refreshed cache.`);
+           // Використовуємо оновлений кеш для подальшої роботи
+           // (Не присвоюємо refreshedPlaces в placesToCheck, бо map працює з оригінальним масивом)
+      } else {
+           this.logger.debug(`[Cron] Checking ${placesToCheck.length} places from cache.`);
+      }
+      // --- КІНЕЦЬ ЗМІН ---
 
-      const places = await this.placeRepository.getAllPlaces();
-      this.logger.debug(`Cron: Loaded ${places.length} places to check.`);
-      
-      await Promise.all(places.map(async (place) => {
-        if (place && !place.isDisabled) { 
-            this.logger.debug(`Cron: Checking place ${place.name}...`);
-            
-            // --- ВАША СТАРА ЛОГІКА ЗАЛИШАЄТЬСЯ БЕЗ ЗМІН ---
-            // (Викликаємо з 5-ма повторними спробами)
-            const { isAvailable } = await this.checkWithRetries(place); 
-            
-            await this.handleAvailabilityChange({ place, isAvailable });
-        } else if (place) {
-            this.logger.debug(`Cron: Skipping disabled place ${place.name}.`);
-        }
-      }));
+      await Promise.all(placesToCheck.map(async (place) => {
+        // Перевіряємо, чи існує place (про всяк випадок)
+        if (!place) {
+            this.logger.warn('[Cron] Encountered null/undefined place in cached list. Skipping.');
+            return;
+        }
+
+        if (place.isDisabled) {
+          this.logger.debug(`[Cron] Skipping disabled place ${place.name} (${place.id}) from cache.`);
+          return; // Переходимо до наступного місця
+        }
+
+        this.logger.debug(`[Cron] Checking place ${place.name} (${place.id})...`);
+
+        // Виконуємо перевірку доступності (як і раніше)
+        const { isAvailable: currentAvailability } = await this.checkWithRetries(place);
+
+        // --- ПОРІВНЮЄМО З КЕШЕМ СТАТУСІВ ---
+        const previousAvailabilityInCache = this.lastKnownStatus[place.id];
+
+        // Викликаємо handleAvailabilityChange ТІЛЬКИ ЯКЩО стан змінився
+        // АБО якщо попереднього стану немає в кеші (undefined)
+        if (previousAvailabilityInCache === undefined || previousAvailabilityInCache !== currentAvailability) {
+           this.logger.log(`[Cron] State change DETECTED for ${place.name} (${place.id}): ${previousAvailabilityInCache} -> ${currentAvailability}. Handling change...`);
+           // Передаємо поточний стан в обробник
+           await this.handleAvailabilityChange({ place, isAvailable: currentAvailability });
+           // Кеш this.lastKnownStatus[place.id] оновиться всередині handleAvailabilityChange
+        } else {
+           // Стан не змінився порівняно з кешем
+           this.logger.debug(`[Cron] State for ${place.name} (${place.id}) has NOT changed (${currentAvailability}). Skipping handler.`);
+        }
+        // --- КІНЕЦЬ ЗМІН ---
+
+      })); // кінець map
 
 this.logger.verbose('Cron job "check-electricity-availability" finished.');
   } catch (error) {
@@ -434,32 +521,54 @@ this.logger.verbose('Cron job "check-electricity-availability" finished.');
 }
 
 private async handleAvailabilityChange(params: {
-  readonly place: Place;
-  readonly isAvailable: boolean;
-}): Promise<void> {
-  const { place, isAvailable } = params;
-  if (!place) {
+    readonly place: Place;
+    readonly isAvailable: boolean; // Це поточний стан, визначений пінгом
+  }): Promise<void> {
+    const { place, isAvailable: currentAvailability } = params; // Перейменували для ясності
+    if (!place) {
       this.logger.error('handleAvailabilityChange called with undefined place.');
       return;
-  }
-  this.logger.log(`Handling availability change for ${place.name}: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
-  try {
-      const [latest] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
-      if (!latest || latest.is_available !== isAvailable) { 
-        this.logger.log(`State changed for ${place.name}. Saving new state: ${isAvailable}`);
-        await this.electricityRepository.save({ placeId: place.id, isAvailable });
+    }
+    this.logger.log(`Handling availability change for ${place.name} (${place.id}): ${currentAvailability ? 'AVAILABLE' : 'UNAVAILABLE'}`);
 
-        // --- ДОДАНО ВИКЛИК СПОВІЩЕННЯ ---
-        this.logger.log(`Triggering notification for place ${place.id}`);
-        await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
-        // ---------------------------------
+    try {
+        // --- Читаємо останній стан саме з БД перед записом ---
+        const [latestFromDb] = await this.electricityRepository.getLatest({ placeId: place.id, limit: 1 });
+        const previousAvailabilityInDb = latestFromDb?.is_available; // Може бути undefined
 
-      } else {
-        this.logger.debug(`State for ${place.name} has not changed. Skipping save.`);
-      }
-  } catch (error) {
-       this.logger.error(`Error saving availability change for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-  }
+        // --- ЗАПИСУЄМО В БД ТІЛЬКИ ЯКЩО стан в БД відрізняється від поточного ---
+        if (previousAvailabilityInDb === undefined || previousAvailabilityInDb !== currentAvailability) {
+            this.logger.log(`[DB] State differs from DB (${previousAvailabilityInDb} vs ${currentAvailability}). Saving new state to DB: ${currentAvailability}`);
+            // --- ЗАПИС В БД ---
+            await this.electricityRepository.save({ placeId: place.id, isAvailable: currentAvailability });
+            // --- КІНЕЦЬ ЗАПИСУ В БД ---
+
+            // --- ОНОВЛЮЄМО КЕШ В ПАМ'ЯТІ ПІСЛЯ УСПІШНОГО ЗАПИСУ В БД ---
+            this.lastKnownStatus[place.id] = currentAvailability;
+            this.logger.log(`[Cache] Updated lastKnownStatus for ${place.id} to ${currentAvailability} after DB save.`);
+            // --- КІНЕЦЬ ОНОВЛЕННЯ КЕШУ ---
+
+            // Повідомляємо підписників (тільки якщо стан дійсно змінився в БД)
+            this.logger.log(`Triggering notification for place ${place.id}`);
+            await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
+
+        } else {
+            // Стан в БД ТАКИЙ ЖЕ, як поточний. Запис не потрібен.
+            this.logger.debug(`[DB] State in DB (${previousAvailabilityInDb}) is already same as current (${currentAvailability}). Skipping save.`);
+
+            // --- Синхронізація кешу (про всяк випадок) ---
+            // Перевіряємо, чи кеш в пам'яті відповідає стану в БД
+            if (this.lastKnownStatus[place.id] !== previousAvailabilityInDb) {
+                 this.lastKnownStatus[place.id] = previousAvailabilityInDb; // Виправляємо кеш
+                 this.logger.warn(`[Cache] Synced lastKnownStatus for ${place.id} from DB state ${previousAvailabilityInDb} (was ${!previousAvailabilityInDb} in cache). Save was skipped.`);
+            }
+            // --- Кінець синхронізації кешу ---
+        }
+    } catch (error) {
+        // Якщо сталася помилка під час getLatest або save, НЕ оновлюємо кеш в пам'яті,
+        // щоб при наступній перевірці спробувати записати знову.
+        this.logger.error(`Error during DB operation in handleAvailabilityChange for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+    }
 }
 
   
