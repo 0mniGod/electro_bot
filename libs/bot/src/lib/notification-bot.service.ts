@@ -75,25 +75,32 @@ constructor(
 }
 
   // --- ДОДАНО МЕТОД onModuleInit ---
+// --- ДОДАНО МЕТОД onModuleInit ---
   async onModuleInit(): Promise<void> {
     this.logger.log('>>> ENTERING onModuleInit()'); // Лог входу в метод
     this.logger.log('Starting initial refresh...');
     try {
-      await this.refreshAllPlacesAndBots(); // Чекаємо завершення першого оновлення
-      // Запускаємо періодичне оновлення ТІЛЬКИ ПІСЛЯ першого успішного
+      // Перше оновлення при старті (ЗАЛИШАЄТЬСЯ)
+      await this.refreshAllPlacesAndBots();
+
+      // --- ВИДАЛЕНО АБО ЗАКОМЕНТОВАНО БЛОК setInterval ---
+      /*
       const refreshRate = 10 * 60 * 1000; // 10 min
-      // Перевіряємо, чи setInterval вже не запущено (про всяк випадок)
       if (!(global as any).botRefreshInterval) {
-         (global as any).botRefreshInterval = setInterval(() => {
-             this.logger.log('>>> Interval triggered: calling refreshAllPlacesAndBots()'); // Лог виклику з інтервалу
-             this.refreshAllPlacesAndBots().catch(err => { // Додано catch для помилок в інтервалі
-                 this.logger.error(`Error during scheduled refreshAllPlacesAndBots: ${err}`, err instanceof Error ? err.stack : undefined);
-             });
-         }, refreshRate);
-         this.logger.log(`Periodic refresh scheduled every ${refreshRate / 1000 / 60} minutes.`);
-      } else {
-         this.logger.warn('Periodic refresh interval already set.');
-      }
+           (global as any).botRefreshInterval = setInterval(() => {
+               this.logger.log('>>> Interval triggered: calling refreshAllPlacesAndBots()');
+               this.refreshAllPlacesAndBots().catch(err => {
+                   this.logger.error(`Error during scheduled refreshAllPlacesAndBots: ${err}`, err instanceof Error ? err.stack : undefined);
+               });
+           }, refreshRate);
+           this.logger.log(`Periodic refresh scheduled every ${refreshRate / 1000 / 60} minutes.`);
+       } else {
+           this.logger.warn('Periodic refresh interval already set.');
+       }
+      */
+      this.logger.log('Automatic periodic refresh is now DISABLED. Use /update command.'); // Додали лог
+      // --- КІНЕЦЬ ЗМІН ---
+
     } catch (error) {
       this.logger.error(`>>> CRITICAL ERROR inside onModuleInit during initial refresh: ${error}`, error instanceof Error ? error.stack : undefined);
     }
@@ -1093,6 +1100,38 @@ constructor(
         this.logger.debug(`Received /about for place ${place.id} via onText`); // Лог
         this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
+
+      // --- ДОДАНО НОВИЙ ОБРОБНИК ДЛЯ /update ---
+      telegramBot.onText(/\/update/, async (msg) => {
+          const userId = msg.from?.id;
+          const chatId = msg.chat.id;
+          this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
+
+          // // Опціонально: Перевірка прав адміністратора
+          // const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
+          // if (!ADMIN_USER_ID || String(userId) !== ADMIN_USER_ID) {
+          //     this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
+          //     try {
+          //         await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
+          //     } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
+          //     return;
+          // }
+
+          // Виконуємо оновлення
+          try {
+              await telegramBot.sendMessage(chatId, '🔄 Запускаю оновлення конфігурацій...');
+              // Викликаємо метод оновлення, який вже існує
+              await this.refreshAllPlacesAndBots();
+              await telegramBot.sendMessage(chatId, '✅ Оновлення конфігурацій завершено!');
+              this.logger.log(`/update command processed successfully for place ${place.id}`);
+          } catch (error) {
+              this.logger.error(`Error during /update command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+              try {
+                  await telegramBot.sendMessage(chatId, '❌ Помилка під час оновлення конфігурацій. Перевірте логи.');
+              } catch (replyError) { this.logger.error(`Error sending error message for /update: ${replyError}`); }
+          }
+      });
+      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА ---
 
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
