@@ -270,9 +270,8 @@ constructor(
     const parseMode = 'HTML'; 
     // Проста заміна Markdown-подібного ** на HTML <b>
     const escapedMessage = message
-        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') 
-        .replace(/\n/g, '<br>'); // Заміна переносів рядків
-
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>'); 
+    
     for (const chatId of chatIds) {
       try {
         await this.sleep({ ms: BULK_NOTIFICATION_DELAY_IN_MS }); // Невелика затримка
