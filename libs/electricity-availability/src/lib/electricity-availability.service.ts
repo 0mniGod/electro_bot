@@ -3,7 +3,6 @@ import { PlaceRepository } from '@electrobot/place-repo'; // Залишаємо 
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit, forwardRef, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { NotificationBotService } from '@electrobot/bot';
 import {
   addHours,
   addMinutes,
@@ -21,11 +20,23 @@ import {
   subMinutes,
   isBefore,
   subDays,
+  isEqual,  
+  startOfHour, 
 } from 'date-fns'; // Додано isBefore, subDays
 import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { firstValueFrom } from 'rxjs';
 import { HistoryItem } from './history-item.type';
+import {
+  NotificationBotService,
+  RESP_ENABLED_SHORT,
+  RESP_DISABLED_SHORT,
+  RESP_ENABLED_SUSPICIOUS,
+  RESP_ENABLED_DETAILED,
+  RESP_DISABLED_SUSPICIOUS,
+  RESP_DISABLED_DETAILED,
+  MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES, // <--- Важливо
+} from '@electrobot/bot';
 // import { ElectricityRepository } from './electricity.repository'; // <--- ВИДАЛЕНО
 
 const API_KEY = 'demo';
@@ -487,7 +498,7 @@ public async refreshInternalCache(): Promise<void> {
         this.logger.log(`[Notify] Prepared message for ${place.id}: "${response.substring(0, 50)}..."`);
         
         // Викликаємо оновлений метод
-        await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ place, msg: response });
+        await this.notificationBotService.sendBulkNotificationsToPlace(place.id, response);
 
       } catch (notifyError) {
           this.logger.error(`[Notify] Error during notification generation for ${place.id}: ${notifyError}`);
