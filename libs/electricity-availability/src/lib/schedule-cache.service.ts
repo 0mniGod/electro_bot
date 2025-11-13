@@ -86,32 +86,103 @@ export class ScheduleCacheService implements OnModuleInit {
    * Запускається кожні 30 хвилин
    */
   @Cron('*/30 * * * *') // Раз на 30 хвилин
-  public async fetchAndCacheSchedules(): Promise<void> {
+  public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
     if (this.isFetching) {
-      this.logger.warn('Schedule fetch already in progress. Skipping.');
-      return;
+      this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
+      return false;
     }
     this.isFetching = true;
-    this.logger.log(`Fetching new schedules from ${API_URL}...`);
+    this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
 
     try {
+      // --- ДОДАНО НОВІ НАЛАШТУВАННЯ ЗАПИТУ ---
+      const requestOptions = {
+        timeout: 45000, // 1. Збільшено тайм-аут до 45 секунд
+        headers: {
+          // 2. Прикидаємось браузером
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
+          // 3. Просимо не стискати відповідь (це може виправити Z_BUF_ERROR)
+          'Accept-Encoding': 'identity'
+        },
+        decompress: false // 4. Кажемо axios не розархівовувати (на випадок пошкодження)
+      };
+      
+      this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
+      // --- --------------------------------- ---
+
       const response = await firstValueFrom(
-        this.httpService.get<ScheduleCache>(API_URL, { timeout: 25000 })
+        this.httpService.get<ScheduleCache>(API_URL, requestOptions)
       );
 
-      if (response.data && response.data.regions) {
-        this.scheduleCache = response.data;
-        this.logger.log(`Successfully fetched and cached schedules for ${response.data.regions.length} regions.`);
+      this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
+      // Логуємо перші 200 символів тіла, щоб не спамити
+      this.logger.debug(`[ScheduleCache] Raw response data (first 200 chars): ${JSON.stringify(response.data).substring(0, 200)}...`);
+
+      const responseData = response.data; // <--- responseData тепер тут
+
+      if (responseData && responseData.regions) {
+        
+        // --- (Стара логіка порівняння JSON, залишається як була) ---
+        const newJsonString = JSON.stringify(responseData);
+        if (newJsonString === this.lastNotifiedScheduleJSON) {
+          this.logger.log('[ScheduleCache] Fetched schedule is identical. No update needed.');
+          return true; // Вважаємо успіхом, хоч і без змін
+        }
+        this.logger.log('[ScheduleCache] !!! Schedule change DETECTED! Updating cache... !!!');
+        this.scheduleCache = responseData;
+        this.lastNotifiedScheduleJSON = newJsonString;
+        // --- ---------------------------------------------------- ---
+
+        // (Логіка сповіщень, залишається як була)
+        if (notifyUsers) {
+          try {
+            const today = this.scheduleCache.date_today;
+            const dateTodayStr = format(new Date(today), 'dd.MM');
+            let updateMessage = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`;
+            
+            const tomorrow = this.scheduleCache.date_tomorrow;
+            if (tomorrow && !this.notifiedTomorrowDates.has(tomorrow)) {
+              const dateTomorrowStr = format(new Date(tomorrow), 'dd.MM');
+              updateMessage += `\n\n💡 **З'явився графік на завтра (${dateTomorrowStr})!**`;
+              this.notifiedTomorrowDates.add(tomorrow);
+            }
+            
+            // Очищуємо старі дати "завтра"
+            this.notifiedTomorrowDates.forEach(date => {
+              if (date < today) {
+                this.notifiedTomorrowDates.delete(date);
+              }
+            });
+
+            await this.notificationBotService.sendScrapedNotification(updateMessage);
+          } catch (notifyError) {
+             this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
+          }
+        }
+        return true; // Успіх
+
       } else {
-        this.logger.warn('Fetched schedule data is empty or invalid.');
+        this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
+        return false;
       }
-    } catch (error: any) { // <--- Змінено на 'any'
-      // Додаємо більше деталей про помилку Axios
+
+    } catch (error: any) {
+      
+      // --- ДОДАНО РОЗШИРЕНЕ ЛОГУВАННЯ ПОМИЛОК ---
+      this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
       if (error.isAxiosError) {
-        this.logger.error(`[ScheduleCache] Failed to fetch (Axios Error). Code: ${error.code}. Status: ${error.response?.status}. Message: ${error.message}`);
+        this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
+        this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
+        this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
+        // Логуємо конфіг, з яким робили запит (без тіла)
+        this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
       } else {
-        this.logger.error(`[ScheduleCache] Failed to fetch (Unknown Error): ${error}`, error instanceof Error ? error.stack : undefined);
+        this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
       }
+      this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
+      // --- ------------------------------------ ---
+      return false;
+
     } finally {
       this.isFetching = false;
     }
