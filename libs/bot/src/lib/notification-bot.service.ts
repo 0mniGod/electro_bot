@@ -1339,27 +1339,60 @@ telegramBot.onText(/\/update/, async (msg) => {
       // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /update ---
 
       // --- ДОДАЄМО НОВИЙ ОБРОБНИК ДЛЯ /schedule ---
-      telegramBot.onText(/\/schedule/, async (msg) => {
+ telegramBot.onText(/\/schedule/, async (msg) => {
           const userId = msg.from?.id;
           const chatId = msg.chat.id;
           this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
 
-          // (Тут також варто додати перевірку на адміна)
-          // const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
-          // if (!ADMIN_USER_ID || String(userId) !== ADMIN_USER_ID) { /* ... return ... */ }
+          // (Тут ваша перевірка на адміна)
+          // ...
 
           try {
               await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
               
-              // --- ВИКЛИКАЄМО ОНОВЛЕННЯ ТІЛЬКИ КЕШУ ГРАФІКІВ ---
-              await this.scheduleCacheService.fetchAndCacheSchedules();
-              // --- -------------------------------------------- ---
+              // 1. Завантажуємо графіки
+              const success = await this.scheduleCacheService.fetchAndCacheSchedules();
 
-              await telegramBot.sendMessage(chatId, '✅ Графіки оновлено!');
-              this.logger.log(`/schedule command processed successfully for place ${place.id}`);
+              if (success) {
+                  // --- 2. ЯКЩО УСПІШНО - ВІДРАЗУ ГЕНЕРУЄМО ГРАФІК ---
+                  this.logger.log(`[ScheduleCommand] Fetch successful. Generating schedule text for chat ${chatId}.`);
+                  
+                  // Використовуємо ті самі хардкод-ключі, що й для /current
+                  const PLACE_ID_TO_SCHEDULE = "001"; 
+                  const REGION_KEY = "kyiv";
+                  const QUEUE_KEY = "2.1"; // <--- Або ваша група
+                  
+                  let scheduleString = "<i>Графік не знайдено (місце не 001).</i>"; // Заглушка
+
+                  if (place.id === PLACE_ID_TO_SCHEDULE) {
+                      try {
+                          scheduleString = this.scheduleCacheService.getTodaysScheduleAsText(
+                              REGION_KEY,
+                              QUEUE_KEY
+                          );
+                      } catch (e) {
+                          this.logger.error(`[ScheduleCommand] Error generating schedule text: ${e}`);
+                          scheduleString = "<i>Помилка при генерації графіка.</i>";
+                      }
+                  }
+                  
+                  // 3. Створюємо фінальне повідомлення
+                  const responseMessage = `✅ Графіки успішно оновлено.\n\n` +
+                                        `<b>--- Графік на сьогодні ---</b>\n` +
+                                        `${scheduleString}`; // Використовуємо хелпер з messages.constant
+
+                  await telegramBot.sendMessage(chatId, responseMessage, { parse_mode: 'HTML' });
+                  // --- -------------------------------------------- ---
+                  
+                  this.logger.log(`/schedule command processed successfully for place ${place.id}`);
+              } else {
+                  // (Помилка завантаження)
+                  await telegramBot.sendMessage(chatId, '❌ Не вдалося завантажити графіки. API (svitlo-proxy) не відповідає.');
+                  this.logger.warn(`/schedule command FAILED for place ${place.id} (API error).`);
+              }
           } catch (error) {
               this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-              await telegramBot.sendMessage(chatId, '❌ Помилка під час завантаження графіків. Перевірте логи.');
+              await telegramBot.sendMessage(chatId, '❌ Сталася внутрішня помилка. Перевірте логи.');
           }
       });
       // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /schedule ---      
