@@ -1,11 +1,12 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 //import { dt as dt_util } from 'homeassistant-util-dt'; // (Потрібно імітувати)
 import { addMinutes, differenceInMinutes, format, startOfHour } from 'date-fns';
 import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
+import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import { NotificationBotService } from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
 // (Ми не можемо імпортувати 'homeassistant-util-dt', тому створимо свою версію)
@@ -70,9 +71,16 @@ export class ScheduleCacheService implements OnModuleInit {
   private readonly logger = new Logger(ScheduleCacheService.name);
   private scheduleCache: ScheduleCache | null = null;
   private isFetching = false;
+  private lastNotifiedScheduleJSON: string | null = null; 
+  private notifiedTomorrowDates = new Set<string>();
+  private isFetching = false;
 
-  constructor(private readonly httpService: HttpService) {}
-
+constructor(
+    private readonly httpService: HttpService,
+    @Inject(forwardRef(() => NotificationBotService))
+    private readonly notificationBotService: NotificationBotService
+  ) {}
+  
   /**
    * Завантажує кеш при старті програми
    */
