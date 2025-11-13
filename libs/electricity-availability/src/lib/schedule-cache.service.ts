@@ -16,6 +16,18 @@ const dt_util_mock = {
 };
 // --- Кінець імітації ---
 
+// --- startOfHalfHour ---
+function startOfHalfHour(date: Date): Date {
+  const newDate = new Date(date);
+  const minutes = newDate.getMinutes();
+  if (minutes < 30) {
+    newDate.setMinutes(0, 0, 0); // Встановлюємо на :00
+  } else {
+    newDate.setMinutes(30, 0, 0); // Встановлюємо на :30
+  }
+  return newDate;
+}
+// --- End startOfHalfHour ---
 
 // API URL, який ми знайшли
 const API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev";
