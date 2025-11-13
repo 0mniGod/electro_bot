@@ -105,8 +105,13 @@ export class ScheduleCacheService implements OnModuleInit {
       } else {
         this.logger.warn('Fetched schedule data is empty or invalid.');
       }
-    } catch (error) {
-      this.logger.error(`Failed to fetch schedules: ${error}`, error instanceof Error ? error.stack : undefined);
+    } catch (error: any) { // <--- Змінено на 'any'
+      // Додаємо більше деталей про помилку Axios
+      if (error.isAxiosError) {
+        this.logger.error(`[ScheduleCache] Failed to fetch (Axios Error). Code: ${error.code}. Status: ${error.response?.status}. Message: ${error.message}`);
+      } else {
+        this.logger.error(`[ScheduleCache] Failed to fetch (Unknown Error): ${error}`, error instanceof Error ? error.stack : undefined);
+      }
     } finally {
       this.isFetching = false;
     }
