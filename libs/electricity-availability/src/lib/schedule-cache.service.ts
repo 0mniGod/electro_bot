@@ -400,19 +400,6 @@ private compressScheduleText(lines: string[]): string {
       
       return compressed.join('\n');
   }
-      
-      // Додаємо останній блок
-      const lastParts = startLine.split(' ');
-      if (lastParts.length < 3) return compressed.join('\n'); 
-
-      const lastPrefix = lastParts[0];
-      const lastStatus = lastParts[2];
-      const lastStartTime = lastParts[1].slice(0, -1); 
-
-      compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
-      
-      return compressed.join('\n');
-  }
   
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
