@@ -224,11 +224,39 @@ constructor(
         let scheduleDisableMoment: Date | undefined;
         let schedulePossibleDisableMoment: Date | undefined;
 
-        // --- Закоментований блок ---
-        /*
-        if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) { ... }
-        */
-        // --- Кінець закоментованого блоку ---
+      let scheduleEnableMoment: Date | undefined;
+      let schedulePossibleEnableMoment: Date | undefined;
+      let scheduleDisableMoment: Date | undefined;
+      let schedulePossibleDisableMoment: Date | undefined;
+
+      // --- Жорстко вказуємо наші ключі ---
+      // (Переконайтеся, що "001" - це ID вашого місця "дома")
+      const PLACE_ID_TO_SCHEDULE = "001"; 
+      const REGION_KEY = "kyiv";
+      const QUEUE_KEY = "2.1"; // <--- Або ваша група
+
+      // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
+      if (place.id === PLACE_ID_TO_SCHEDULE) {
+        this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
+        try {
+            // Викликаємо наш сервіс кешу з "зашитими" ключами
+            const prediction = this.scheduleCacheService.getSchedulePrediction(
+              REGION_KEY,
+              QUEUE_KEY
+            );
+            
+            // Призначаємо отримані значення
+            scheduleEnableMoment = prediction.scheduleEnableMoment;
+            schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
+            scheduleDisableMoment = prediction.scheduleDisableMoment;
+            schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+
+        } catch (scheduleError) {
+             this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
+        }
+      } else {
+         this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
+      }
 
         const response = latest.is_available
           ? RESP_CURRENTLY_AVAILABLE({
