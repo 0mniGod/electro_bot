@@ -46,18 +46,19 @@ export const RESP_START = (params: {
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
   `Нажаль, наразі інформація щодо наявності світла в ${params.place} відсутня.`;
 
-export const TODAYS_SCHEDULE = (params: {
-  readonly scheduleString?: string; 
+export const TOMORROWS_SCHEDULE = (params: {
+  readonly scheduleString?: string; // Повний графік на завтра
 }) =>
   params.scheduleString && params.scheduleString.length > 0
-    ? `\n\n<b>--- Графік на сьогодні ---</b>\n${params.scheduleString}` 
-    : '';
+    ? `\n\n<b>--- Графік на завтра ---</b>\n${params.scheduleString}`
+    : '\n\n<b>--- Графік на завтра ---</b>\n<i>Дані ще не опубліковано.</i>';
 
 export const RESP_CURRENTLY_AVAILABLE = (params: {
   readonly when: string;
   readonly howLong: string;
   readonly place: string;
   readonly scheduleDisableMoment?: Date;
+  readonly tomorrowsSchedule?: string;
   readonly schedulePossibleDisableMoment?: Date;
   readonly todaysSchedule?: string;
   readonly scheduleContextMessage?: string; // <--- ДОДАНО
@@ -77,6 +78,7 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly when: string;
   readonly howLong: string;
   readonly place: string;
+  readonly tomorrowsSchedule?: string;
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
   readonly todaysSchedule?: string; 
