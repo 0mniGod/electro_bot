@@ -8,4 +8,6 @@ export interface Place {
   readonly disableMonthlyStats: boolean;
   readonly kyivScheduleGroupId?: number;
   readonly isDisabled: boolean;
+  readonly scheduleRegionKey?: string; 
+  readonly scheduleQueueKey?: string;
 }
