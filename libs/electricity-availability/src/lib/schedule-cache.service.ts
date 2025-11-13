@@ -42,7 +42,7 @@ function startOfHalfHour(date: Date): Date {
 const API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev";
 
 // Стан світла (1 = є, 2 = немає, 0 = можливо)
-enum LightStatus {
+export enum LightStatus {
   ON = 1,
   OFF = 2,
   POSSIBLE = 0,
