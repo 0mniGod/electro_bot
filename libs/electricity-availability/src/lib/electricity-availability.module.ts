@@ -14,7 +14,7 @@ import { ScheduleCacheService } from './schedule-cache.service';
     PlaceRepoModule,
     forwardRef(() => BotModule), // <-- ВИПРАВЛЕНО
   ],
-  providers: [ElectricityAvailabilityService, ElectricityRepository, ScheduleCacheService],
+  providers: [ElectricityAvailabilityService, ScheduleCacheService],
   exports: [ElectricityAvailabilityService, ScheduleCacheService],
 })
 export class ElectricityAvailabilityModule {}
