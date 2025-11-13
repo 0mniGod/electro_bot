@@ -953,9 +953,10 @@ try {
       const QUEUE_KEY = "2.1"; // Ваша група
 
       // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
-      if (place.id === PLACE_ID_TO_SCHEDULE) {
+if (place.id === PLACE_ID_TO_SCHEDULE) {
         this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
         try {
+            // 1. Отримуємо прогноз (як і раніше)
             const prediction = this.scheduleCacheService.getSchedulePrediction(
               REGION_KEY,
               QUEUE_KEY
@@ -966,12 +967,22 @@ try {
             scheduleDisableMoment = prediction.scheduleDisableMoment;
             schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
 
+            // --- 2. ДОДАЄМО ОТРИМАННЯ ПОВНОГО ГРАФІКА ---
+            todaysScheduleString = this.scheduleCacheService.getTodaysScheduleAsText(
+              REGION_KEY,
+              QUEUE_KEY
+            );
+            // --- ------------------------------------ ---
+
         } catch (scheduleError) {
              this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
         }
       } else {
          this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
       }
+      
+      // Оголошуємо змінну перед блоком
+      let todaysScheduleString: string | undefined;
 
       const latestTime = convertToTimeZone(latest.time, {
         timeZone: place.timezone,
@@ -980,19 +991,19 @@ try {
       let response: string;
       if (!previous) {
         this.logger.log(`No previous state found for place ${placeId}, sending short notification.`); // Лог
-        response = latest.is_available
-          ? RESP_ENABLED_SHORT({
-              when,
-              place: place.name,
-              scheduleDisableMoment, // undefined
-              schedulePossibleDisableMoment, // undefined
-            })
-          : RESP_DISABLED_SHORT({
-              when,
-              place: place.name,
-              scheduleEnableMoment, // undefined
-              schedulePossibleEnableMoment, // undefined
-            });
+        const response = latest.is_available
+        ? RESP_CURRENTLY_AVAILABLE({
+            // ...
+            scheduleDisableMoment,
+            schedulePossibleDisableMoment,
+            todaysSchedule: todaysScheduleString // <--- ПЕРЕДАЄМО РЯДОК СЮДИ
+          })
+        : RESP_CURRENTLY_UNAVAILABLE({
+            // ...
+            scheduleEnableMoment,
+            schedulePossibleEnableMoment,
+            todaysSchedule: todaysScheduleString // <--- І СЮДИ
+          });
       } else {
         const previousTime = convertToTimeZone(previous.time, {
           timeZone: place.timezone,
