@@ -1198,7 +1198,7 @@ private async notifyAllPlaceSubscribers(params: {
           this.logger.warn('[Cache] Subscriber cache is empty (likely due to restart). Initializing empty cache.');
           
           // --- КРОК 2: ДОДАЄМО ВАШ ID В КЕШ ---
-          const YOUR_TELEGRAM_CHAT_ID = 123456789; // <--- ЗАМІНІТЬ 123456789 НА ВАШ ID
+          const YOUR_TELEGRAM_CHAT_ID = 229951457; 
           // --- ----------------------------- ---
 
           for (const placeId of activePlaceIds) {
