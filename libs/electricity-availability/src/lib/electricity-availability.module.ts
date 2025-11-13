@@ -5,6 +5,7 @@ import { ElectricityRepository } from './electricity.repository';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PlaceRepoModule } from '@electrobot/place-repo';
 import { BotModule } from '@electrobot/bot'; // Імпорт залишається
+import { ScheduleCacheService } from './schedule-cache.service';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { BotModule } from '@electrobot/bot'; // Імпорт залишаєть�
     PlaceRepoModule,
     forwardRef(() => BotModule), // <-- ВИПРАВЛЕНО
   ],
-  providers: [ElectricityAvailabilityService, ElectricityRepository],
-  exports: [ElectricityAvailabilityService],
+  providers: [ElectricityAvailabilityService, ElectricityRepository, ScheduleCacheService],
+  exports: [ElectricityAvailabilityService, ScheduleCacheService],
 })
 export class ElectricityAvailabilityModule {}
