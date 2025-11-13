@@ -7,8 +7,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
-    UserRepoModule,
-    PlaceRepoModule,
+    //UserRepoModule,
+    //PlaceRepoModule,
     ScheduleModule.forRoot(),
     ElectricityAvailabilityModule, // <-- ДОДАЙТЕ ЦЕЙ МОДУЛЬ
   ],
