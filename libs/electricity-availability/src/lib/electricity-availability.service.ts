@@ -37,6 +37,18 @@ interface HistoryRecord {
   placeId: string;
 }
 
+  const HARDCODED_PLACE_FOR_EA: Place = {
+      id: "001",
+      name: "дома",
+      checkType: 'ping',
+      host: "176.100.14.52",
+      timezone: "Europe/Kyiv",
+      isDisabled: false,
+      disableMonthlyStats: false,
+      scheduleRegionKey: "kyiv", 
+      scheduleQueueKey: "2.1"
+  };
+
 @Injectable()
 export class ElectricityAvailabilityService implements OnModuleInit {
   private readonly logger = new Logger(ElectricityAvailabilityService.name);
@@ -65,18 +77,6 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     await this.refreshInternalCache();
     this.logger.log('ElectricityAvailabilityService onModuleInit finished.');
   }
-
-  const HARDCODED_PLACE_FOR_EA: Place = {
-      id: "001",
-      name: "дома",
-      checkType: 'ping',
-      host: "176.100.14.52",
-      timezone: "Europe/Kyiv",
-      isDisabled: false,
-      disableMonthlyStats: false,
-      scheduleRegionKey: "kyiv", 
-      scheduleQueueKey: "2.1"
-  };
   
 public async refreshInternalCache(): Promise<void> {
     this.logger.log('[Cache] Starting internal cache refresh from hardcode...');
