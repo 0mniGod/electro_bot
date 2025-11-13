@@ -339,7 +339,7 @@ constructor(
 /**
    * Допоміжний метод для об'єднання однакових слотів (ВИПРАВЛЕНА ЛОГІКА v4)
    */
-  private compressScheduleText(lines: string[]): string {
+private compressScheduleText(lines: string[]): string {
       if (lines.length === 0) return '';
       
       const compressed: string[] = [];
@@ -348,35 +348,35 @@ constructor(
       for (let i = 1; i < lines.length; i++) {
           const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
           
+          // Розбиваємо рядки на частини: ["🔙", "00:00:", "💡"]
           const startParts = startLine.split(' '); 
           const currentParts = currentLine.split(' ');
 
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
-          // --- ОТРИМУЄМО ЛИШЕ СТАТУС ---
+          const startPrefix = startParts[0]; // 🔙
           const startStatus = startParts[2]; // 💡
+          const currentPrefix = currentParts[0]; // 🔙
           const currentStatus = currentParts[2]; // 💡
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ !!! ---
-          // Ми об'єднуємо рядки, поки СТАТУС однаковий.
-          // Нам байдуже, чи змінився префікс (з 🔙 на 🔘).
-          if (startStatus !== currentStatus) {
+          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v6) !!! ---
+          // Зупиняємось, якщо змінився СТАТУС (💡/🌚) АБО ПРЕФІКС (🔙/🟢/🔜)
+          if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
               
               // 1. Беремо префікс (🔙) та час (00:00) з ПОЧАТКОВОГО рядка
-              const startPrefix = startParts[0]; 
-              const startTime = startParts[1].slice(0, -1); 
+              const startTime = startParts[1].slice(0, -1); // "00:00"
               
               // 2. Беремо час кінця (це час початку ПОТОЧНОГО рядка)
-              const endTime = currentParts[1].slice(0, -1); 
+              const endTime = currentParts[1].slice(0, -1); // "03:30"
               
-              // 3. Форматуємо: 🔙 00:00 - 03:30 💡
+              // 3. Форматуємо: 🔙 00:00 - 03:30 💡 (без двокрапки в кінці)
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
               
               // 4. Починаємо новий блок
               startLine = currentLine;
           }
-          // Якщо статуси однакові (💡 === 💡), ми нічого не робимо,
-          // просто продовжуємо цикл.
+          // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+          // Якщо статуси І префікси однакові, нічого не робимо (продовжуємо групувати)
       }
       
       // Додаємо останній блок (від останньої зміни до кінця дня 00:00)
@@ -387,7 +387,7 @@ constructor(
       const lastStatus = lastParts[2];
       const lastStartTime = lastParts[1].slice(0, -1); 
 
-      // Форматуємо: 🔜 20:30 - 00:00 🌚
+      // Форматуємо: 🟢 21:30 - 00:00 🌚
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
