@@ -335,58 +335,52 @@ constructor(
 /**
    * Допоміжний метод для об'єднання однакових слотів (ОНОВЛЕНО)
    */
-private compressScheduleText(lines: string[]): string {
-    if (lines.length === 0) return '';
-    
-    const compressed: string[] = [];
-    let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
-    
-    for (let i = 1; i < lines.length; i++) {
-        const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
-        
-        // Розбиваємо рядки на частини
-        // startParts = [ "🔙", "00:00:", "💡" ]
-        const startParts = startLine.split(' '); 
-        const currentParts = currentLine.split(' ');
+  private compressScheduleText(lines: string[]): string {
+      if (lines.length === 0) return '';
+      
+      const compressed: string[] = [];
+      let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
+      
+      for (let i = 1; i < lines.length; i++) {
+          const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
+          
+          // Розбиваємо рядки на частини
+          // startParts = [ "🔙", "00:00:", "💡" ]
+          const startParts = startLine.split(' '); 
+          const currentParts = currentLine.split(' ');
 
-        // Перевірка, чи рядок має правильний формат
-        if (startParts.length < 3 || currentParts.length < 3) continue; 
+          if (startParts.length < 3 || currentParts.length < 3) continue; 
 
-        const startPrefix = startParts[0]; // 🔙
-        const startStatus = startParts[2]; // 💡
-        const currentPrefix = currentParts[0]; // 🔙
-        const currentStatus = currentParts[2]; // 💡
+          const startPrefix = startParts[0]; // 🔙
+          const startStatus = startParts[2]; // 💡
+          const currentPrefix = currentParts[0]; // 🔙
+          const currentStatus = currentParts[2]; // 💡
 
-        // Якщо префікс (минуле/майбутнє) АБО статус (світло/темрява) змінилися...
-        if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
-            
-            // 1. Беремо час початку (напр. "00:00:") і видаляємо останню ':'
-            const startTime = startParts[1].slice(0, -1); // "00:00"
-            
-            // 2. Беремо час кінця (це час початку поточного рядка)
-            const endTime = currentParts[1].slice(0, -1); // "01:00"
-            
-            // 3. Форматуємо: 🔙 00:00 - 01:00: 💡
-            compressed.push(`${startPrefix} ${startTime} - ${endTime}: ${startStatus}`);
-            
-            // 4. Починаємо новий блок
-            startLine = currentLine;
-        }
-        // Якщо статуси однакові, нічого не робимо (продовжуємо групувати)
-    }
-    
-    // Додаємо останній блок (від останньої зміни до кінця дня 00:00)
-    const lastParts = startLine.split(' ');
-    if (lastParts.length < 3) return compressed.join('\n'); // Безпечна перевірка
+          // Якщо префікс (минуле/майбутнє) АБО статус (світло/темрява) змінилися...
+          if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
+              
+              const startTime = startParts[1].slice(0, -1); // "00:00"
+              const endTime = currentParts[1].slice(0, -1); // "01:00"
+              
+              // --- ВИДАЛЕНО ДВОКРАПКУ ПЕРЕД ${startStatus} ---
+              compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
+              
+              startLine = currentLine;
+          }
+      }
+      
+      // Додаємо останній блок
+      const lastParts = startLine.split(' ');
+      if (lastParts.length < 3) return compressed.join('\n');
 
-    const lastPrefix = lastParts[0];
-    const lastStatus = lastParts[2];
-    const lastStartTime = lastParts[1].slice(0, -1); // час останньої зміни
+      const lastPrefix = lastParts[0];
+      const lastStatus = lastParts[2];
+      const lastStartTime = lastParts[1].slice(0, -1);
 
-    // Форматуємо: 🔜 20:30 - 00:00: 🌚
-    compressed.push(`${lastPrefix} ${lastStartTime} - 00:00: ${lastStatus}`);
-    
-    return compressed.join('\n');
+      // --- ВИДАЛЕНО ДВОКРАПКУ ПЕРЕД ${lastStatus} ---
+      compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
+      
+      return compressed.join('\n');
   }
   
   /**
