@@ -12,7 +12,7 @@ import {
   EMOJ_MOON,
   EMOJ_CHECK_MARK,
   EMOJ_GRAY_Q,
-} from '@electrobot/bot/messages';
+} from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
 // (Ми не можемо імпортувати 'homeassistant-util-dt', тому створимо свою версію)
