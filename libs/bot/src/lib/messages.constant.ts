@@ -15,6 +15,9 @@ export const EMOJ_CRYSTAL_BALL = emoji.get('crystal_ball');
 export const EMOJ_GAME_DIE = emoji.get('game_die');
 export const EMOJ_CROSSED_FINGERS = emoji.get('crossed_fingers');
 export const EMOJ_SYMBOLS_OVER_MOUTH = emoji.get('symbols_over_mouth');
+export const EMOJ_CHECK_MARK = emoji.get('white_check_mark'); 
+export const EMOJ_HOURGLASS = emoji.get('hourglass_flowing_sand'); 
+export const EMOJ_GRAY_Q = emoji.get('grey_question'); 
 
 export const MSG_DISABLED_REGULAR_SUFFIX =
   'Не забувай підтримувати українську армію!\n';
@@ -37,12 +40,19 @@ export const RESP_START = (params: {
   `   `;
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
   `Нажаль, наразі інформація щодо наявності світла в ${params.place} відсутня.`;
+export const TODAYS_SCHEDULE = (params: {
+  readonly scheduleString?: string; // Повний графік, згенерований у сервісі
+}) =>
+  params.scheduleString && params.scheduleString.length > 0
+    ? `\n\n<b>--- Графік на сьогодні ---</b>\n${params.scheduleString}` // Використовуємо HTML-тег <b>
+    : '';
 export const RESP_CURRENTLY_AVAILABLE = (params: {
   readonly when: string;
   readonly howLong: string;
   readonly place: string;
   readonly scheduleDisableMoment?: Date;
   readonly schedulePossibleDisableMoment?: Date;
+  readonly todaysSchedule?: string; // <--- 1. ДОДАЙТЕ ЦЕЙ ПАРАМЕТР
 }) =>
   `${EMOJ_BULB} Наразі все добре - світло в ${params.place} є!\n\n`+
   `Включення відбулося ${params.when}.\n` +
@@ -51,6 +61,7 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- 2. ДОДАЙТЕ ЦЕЙ РЯДОК
   `\nСлава Україні!`;
 export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly when: string;
@@ -58,6 +69,7 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly place: string;
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
+  readonly todaysSchedule?: string; // <--- 1. ДОДАЙТЕ ЦЕЙ ПАРАМЕТР
 }) =>
   `${EMOJ_MOON} Нажаль, наразі світла в ${params.place} нема.\n\n`+
   `Вимкнення відбулося ${params.when}.\n` +
@@ -66,6 +78,7 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
     scheduleEnableMoment: params.scheduleEnableMoment,
     schedulePossibleEnableMoment: params.schedulePossibleEnableMoment,
   }) +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- 2. ДОДАЙТЕ ЦЕЙ РЯДОК
   `\n${MSG_DISABLED_REGULAR_SUFFIX}`;
 export const RESP_SUBSCRIPTION_CREATED = (params: { readonly place: string }) =>
   `Підписка створена - ти будеш отримувати повідомлення кожного разу після зміни ситуації зі світлом в ${params.place}.\n` +
