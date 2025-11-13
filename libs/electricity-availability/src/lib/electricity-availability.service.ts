@@ -425,7 +425,7 @@ public async refreshInternalCache(): Promise<void> {
    * ОНОВЛЕНИЙ: Зберігає стан, генерує "розумні" сповіщення
    * і викликає NotificationBotService для відправки.
    */
-  private async handleAvailabilityChange(params: {
+private async handleAvailabilityChange(params: {
     readonly place: Place;
     readonly isAvailable: boolean;
   }): Promise<void> {
@@ -468,7 +468,7 @@ public async refreshInternalCache(): Promise<void> {
         let scheduleDisableMoment: Date | undefined;
         let schedulePossibleDisableMoment: Date | undefined;
         let scheduleContextMessage = ''; // <--- Наша нова змінна
-        const nowKyiv = convertToTimeZone(new Date(), { timeZone: place.timezone }); // Використовуємо timezone місця
+        const nowKyiv = convertToTimeZone(new Date(), { timeZone: place.timezone });
 
         const PLACE_ID_TO_SCHEDULE = "001"; 
         const REGION_KEY = "kyiv";
@@ -488,29 +488,40 @@ public async refreshInternalCache(): Promise<void> {
                 // --- СВІТЛО ВИМКНУЛИ ---
                 const nextOff = prediction.scheduleDisableMoment || prediction.schedulePossibleDisableMoment;
                 if (nextOff) {
-                  const diffInMinutes = differenceInMinutes(nextOff, nowKyiv); // >0 = вимкнули *до* часу
-                  if (diffInMinutes >= -30 && diffInMinutes <= 30) {
+                  // >0 = вимкнули *до* часу
+                  const diffInMinutes = differenceInMinutes(nextOff, nowKyiv); 
+                  
+                  if (diffInMinutes >= -30 && diffInMinutes <= 30) { // Вчасно (з похибкою 30 хв)
                     scheduleContextMessage = 'ℹ️ Вимкнення відбулося за графіком.';
-                  } else if (diffInMinutes > 30 && diffInMinutes <= 120) {
+                  } else if (diffInMinutes > 30 && diffInMinutes <= 120) { // Раніше (30-120 хв)
                     scheduleContextMessage = '🤬 Вимкнули раніше графіка. Клята русня!';
-                  } else if (diffInMinutes > 120) {
+                  } else if (diffInMinutes > 120) { // Дуже рано (> 120 хв)
                     scheduleContextMessage = '🚨 Схоже, це екстрене відключення (вимкнули >2 годин до графіка). Клята русня!';
+                  } else if (diffInMinutes < -30) { // Значно пізніше
+                    scheduleContextMessage = 'ℹ️ Вимкнення відбулося значно пізніше графіка.';
                   }
+                } else {
+                  scheduleContextMessage = '🚨 Увага! Вимкнення поза графіком.';
                 }
               } else {
                 // --- СВІТЛО ВВІМКНУЛИ ---
                 const nextOn = prediction.scheduleEnableMoment || prediction.schedulePossibleEnableMoment;
                 if (nextOn) {
-                  const diffInMinutes = differenceInMinutes(nextOn, nowKyiv); // >0 = ввімкнули *до* часу
-                  if (diffInMinutes > 120) {
+                  // >0 = ввімкнули *до* часу
+                  const diffInMinutes = differenceInMinutes(nextOn, nowKyiv); 
+                  
+                  if (diffInMinutes > 120) { // Дуже рано
                     scheduleContextMessage = '🙏💡 Світло дали БІЛЬШЕ НІЖ НА 2 ГОДИНИ раніше графіка! Слава Богу та Енергетикам!';
-                  } else if (diffInMinutes > 30) {
+                  } else if (diffInMinutes > 30) { // Рано (30-120 хв)
                     scheduleContextMessage = '💡 Світло дали раніше графіка! Слава Енергетикам!';
-                  } else if (diffInMinutes >= -30 && diffInMinutes <= 30) {
+                  } else if (diffInMinutes >= -30 && diffInMinutes <= 30) { // Вчасно
                     scheduleContextMessage = 'ℹ️ Увімкнення відбулося за графіком.';
                   }
+                  // (Якщо < -30 - ввімкнули пізніше, нічого не кажемо)
                 }
               }
+              // --- КІНЕЦЬ АНАЛІЗУ ДЛЯ КОНТЕКСТУ ---
+
           } catch (scheduleError) {
                this.logger.error(`[Schedule] Failed to get prediction for notification: ${scheduleError}`);
           }
