@@ -1360,20 +1360,6 @@ telegramBot.onText(/\/update/, async (msg) => {
        return undefined; // Повертаємо undefined у разі помилки
     }
   }
-
-  // Метод для отримання інстансу бота
-  public getMainTelegramBotInstance(): TelegramBot | undefined {
-    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`); // Лог
-    // Шукаємо перший активний бот (можна вдосконалити, якщо ботів багато)
-    const activeBotEntry = Object.values(this.placeBots).find(entry => entry.bot.isEnabled);
-    if (activeBotEntry) {
-      this.logger.log(`Found active bot instance for placeId: ${activeBotEntry.bot.placeId}`); // Лог
-      return activeBotEntry.telegramBot;
-    } else {
-      this.logger.warn('No active bot instance found in this.placeBots during getMainTelegramBotInstance');
-      return undefined;
-    }
-  }
   
   public getMainTelegramBotInstance(): TelegramBot | undefined {
     this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
