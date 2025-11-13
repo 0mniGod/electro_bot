@@ -45,8 +45,6 @@ import {
   MSG_DISABLED,
 } from './messages.constant';
 
-const MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES = 30;
-const BULK_NOTIFICATION_DELAY_IN_MS = 50;
 const TZ_KYIV = 'Europe/Kyiv';
 const dt_util_mock = {
   now: (timeZone: string) => convertToTimeZone(new Date(), { timeZone }),
@@ -60,6 +58,7 @@ const BULK_NOTIFICATION_DELAY_IN_MS = 50;
 const HARDCODED_PLACE: Place = {
     id: "001", 
     name: "дома",
+    checkType: 'ping',
     host: "176.100.14.52", 
     timezone: "Europe/Kyiv",
     isDisabled: false,
@@ -288,8 +287,8 @@ constructor(
           blockedCount++;
           // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
           // Видаляємо з кешу
-          const index = this.subscriberCache[placeid].indexOf(chatId);
-          if (index > -1) this.subscriberCache[placeid].splice(index, 1);
+          const index = this.subscriberCache[place.id].indexOf(chatId);
+          if (index > -1) this.subscriberCache[place.id].splice(index, 1);
         } else {
           errorCount++;
           this.logger.warn(`Failed to send notification to chat ${chatId} (place ${placeId}). Code: ${errorCode}. Desc: ${errorDesc}`);
@@ -541,7 +540,7 @@ try {
 
     // --- ЛОГІКА РОБОТИ З КЕШЕМ (ЗАМІСТЬ ЗАПИТУ ДО БД) ---
     if (!isNaN(chatIdNum) && this.subscriberCache[place.id]) {
-        const index = this.subscriberCache[placeid].indexOf(chatIdNum);
+        const index = this.subscriberCache[place.id].indexOf(chatIdNum);
         if (index > -1) {
             this.subscriberCache[place.id].splice(index, 1);
             this.logger.log(`[Cache] Removed chat ${chatIdNum} from subscriber cache for place ${place.id}`);
@@ -1374,132 +1373,11 @@ telegramBot.onText(/\/update/, async (msg) => {
     }
   }
 
-  private async sleep(params: { readonly ms: number }): Promise<void> {
-    // this.logger.debug(`Sleeping for ${params.ms} ms`); // Розкоментуйте для дуже детального логування
-    // Додаємо перевірку на null/undefined
-    if (params?.ms > 0) {
-        return new Promise((r) => setTimeout(r, params.ms));
-    } else {
-        return Promise.resolve(); // Не чекаємо, якщо ms не задано або <= 0
-    }
-  }
-
- // --- ОНОВЛЕНИЙ composeListedBotsMessage ---
-  private async composeListedBotsMessage(): Promise<string> {
-      this.logger.log('Composing listed bots message from hardcoded config...');
-      // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
-      // Повертаємо просту заглушку, оскільки у нас лише 1 бот
-      const botName = HARDCODED_BOT.botName;
-      const placeName = HARDCODED_PLACE.name;
-      const userCount = this.subscriberCache[HARDCODED_PLACE.id]?.length || 0; // Беремо з кешу
-
-      let res = `Наразі сервісом користуються ${userCount} користувачів у 1 боті:\n`;
-      res += `@${botName}\n${placeName}: ${userCount} користувачів\n`;
-      return res + '\n';
-  }
 private async sleep(params: { readonly ms: number }): Promise<void> {
     if (params?.ms > 0) {
       return new Promise((r) => setTimeout(r, params.ms));
     } else {
       return Promise.resolve();
-    }
-  }
-
-  private isGroup(params: { readonly chatId: number }): boolean {
-    const result = params.chatId < 0;
-    return result;
-  }
-
-  private createBot(params: {
-    readonly place: Place;
-    readonly bot: Bot;
-  }): TelegramBot | undefined {
-    const { place, bot } = params;
-    try {
-      this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`);
-      if (!bot.token) {
-        this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
-        return undefined;
-      }
-      
-      const telegramBot = new TelegramBot(bot.token);
-      this.logger.log(`TelegramBot instance created for place ${place.id}. Attaching listeners...`);
-
-      // Обробники подій
-      telegramBot.on('polling_error', (error) => { this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`); });
-      telegramBot.on('webhook_error', (error: any) => { this.logger.error(`${place.name}/${bot.botName} webhook_error: ${error?.code} ${error?.message || JSON.stringify(error)}`); });
-      telegramBot.on('error', (error) => { this.logger.error(`${place.name}/${bot.botName} general error: ${error}`, error instanceof Error ? error.stack : undefined); });
-
-      // Обробники команд
-      telegramBot.onText(/\/start/, (msg) => {
-        this.logger.debug(`Received /start for place ${place.id} via onText`);
-        this.handleStartCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStartCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/current/, (msg) => {
-        this.logger.debug(`Received /current for place ${place.id} via onText`);
-        this.handleCurrentCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleCurrentCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/subscribe/, (msg) => {
-        this.logger.debug(`Received /subscribe for place ${place.id} via onText`);
-        this.handleSubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleSubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/unsubscribe/, (msg) => {
-        this.logger.debug(`Received /unsubscribe for place ${place.id} via onText`);
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/stop/, (msg) => {
-        this.logger.debug(`Received /stop for place ${place.id} via onText`);
-        this.handleUnsubscribeCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleUnsubscribeCommand (stop): ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/stats/, (msg) => {
-        this.logger.debug(`Received /stats for place ${place.id} via onText`);
-        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      telegramBot.onText(/\/about/, (msg) => {
-        this.logger.debug(`Received /about for place ${place.id} via onText`);
-        this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err instanceof Error ? err.stack : undefined));
-      });
-      
-      // Обробник /update
-      telegramBot.onText(/\/update/, async (msg) => {
-          const userId = msg.from?.id;
-          const chatId = msg.chat.id;
-          this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
-          // (Перевірка на адміна)
-          try {
-              await telegramBot.sendMessage(chatId, '🔄 Запускаю оновлення конфігурацій та внутрішнього кешу...');
-              await this.refreshAllPlacesAndBots(); 
-              await this.electricityAvailabilityService.refreshInternalCache();
-              await telegramBot.sendMessage(chatId, '✅ Оновлення завершено!');
-              this.logger.log(`/update command processed successfully for place ${place.id}`);
-          } catch (error) {
-              this.logger.error(`Error during /update command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-              await telegramBot.sendMessage(chatId, '❌ Помилка під час оновлення. Перевірте логи.');
-          }
-      });
-
-      // Обробник /schedule
-      telegramBot.onText(/\/schedule/, async (msg) => {
-          const userId = msg.from?.id;
-          const chatId = msg.chat.id;
-          this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
-          // (Перевірка на адміна)
-          try {
-              await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
-              await this.scheduleCacheService.fetchAndCacheSchedules();
-              await telegramBot.sendMessage(chatId, '✅ Графіки оновлено!');
-              this.logger.log(`/schedule command processed successfully for place ${place.id}`);
-          } catch (error) {
-              this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-              await telegramBot.sendMessage(chatId, '❌ Помилка під час завантаження графіків. Перевірте логи.');
-          }
-      });
-
-      this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`);
-      return telegramBot;
-    } catch (error) {
-       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-       return undefined;
     }
   }
 } // <-- Кінець класу NotificationBotService
