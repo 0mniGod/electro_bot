@@ -422,7 +422,7 @@ public async refreshInternalCache(): Promise<void> {
   }
 
 /**
-   * ОНОВЛЕНИЙ v3: Зберігає стан, генерує "розумні" сповіщення
+   * ОНОВЛЕНИЙ v12: Зберігає стан, генерує "розумні" сповіщення
    * і викликає NotificationBotService для відправки.
    */
   private async handleAvailabilityChange(params: {
@@ -483,15 +483,16 @@ public async refreshInternalCache(): Promise<void> {
               scheduleDisableMoment = prediction.scheduleDisableMoment;
               schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
 
-              // --- !!! НОВА ЛОГІКА АНАЛІЗУ ГРАФІКА (v5 - ФІНАЛЬНА) !!! ---
+              // --- !!! НОВА ЛОГІКА АНАЛІЗУ ГРАФІКА (v12) !!! ---
               
-              // 1. Знаходимо ОСТАННЮ заплановану зміну
+              // 1. Знаходимо ОСТАННЮ заплановану зміну (напр. 20:30, OFF)
               const lastScheduledChange = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
 
               if (lastScheduledChange.time) {
-                // diffInMinutes = (Фактичний час) - (Запланований час)
-                // > 0 = сталося ПІЗНІШЕ
-                // < 0 = сталося РАНІШЕ
+                
+                // 2. diffInMinutes = (Фактичний час 22:59) - (Запланований час 20:30) = +89 хвилин
+                // > 0 = сталося ПІЗНІШЕ (добре, якщо вимкнули; погано, якщо ввімкнули)
+                // < 0 = сталося РАНІШЕ (погано, якщо вимкнули; добре, якщо ввімкнули)
                 const diffInMinutes = differenceInMinutes(latest.time, lastScheduledChange.time);
             
                 if (!latest.is_available) {
@@ -505,10 +506,10 @@ public async refreshInternalCache(): Promise<void> {
                         if (diffInMinutes < -120) {
                            scheduleContextMessage = '🚨 Схоже, це екстрене відключення (вимкнули >2 годин до графіка). Йобана русня!';
                         }
-                      } else if (diffInMinutes > 30) { // > 30 (сталося *пізніше*)
+                      } else if (diffInMinutes > 30) { // > 30 (сталося *пізніше* - як у вашому випадку +89 хв)
                         scheduleContextMessage = '💡 Світло було довше, ніж за графіком! Слава Енергетикам!';
                       }
-                  } else {
+                  } else { // (lastScheduledChange.status === LightStatus.ON)
                      scheduleContextMessage = '🚨 Увага! Вимкнення поза графіком (в цей час мало бути світло).';
                   }
                 } else {
@@ -525,7 +526,7 @@ public async refreshInternalCache(): Promise<void> {
                       } else if (diffInMinutes >= -30 && diffInMinutes <= 30) {
                         scheduleContextMessage = 'ℹ️ Увімкнення відбулося за графіком.';
                       }
-                  } else {
+                  } else { // (lastScheduledChange.status === LightStatus.OFF)
                       scheduleContextMessage = '💡 Увага! Увімкнення поза графіком (в цей час *не* мало бути світла).';
                   }
                 }
