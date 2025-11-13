@@ -63,6 +63,7 @@ export class NotificationBotService implements OnModuleInit {
 constructor(
   @Inject(forwardRef(() => ElectricityAvailabilityService)) // <-- ВИПРАВЛЕНО
   private readonly electricityAvailabilityService: ElectricityAvailabilityService,
+  private readonly scheduleCacheService: ScheduleCacheService,
   private readonly userRepository: UserRepository,
   private readonly placeRepository: PlaceRepository
 ) {
@@ -1142,7 +1143,33 @@ telegramBot.onText(/\/update/, async (msg) => {
               } catch (replyError) { this.logger.error(`Error sending error message for /update: ${replyError}`); }
           }
       });
-      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА ---
+      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /update ---
+
+      // --- ДОДАЄМО НОВИЙ ОБРОБНИК ДЛЯ /schedule ---
+      telegramBot.onText(/\/schedule/, async (msg) => {
+          const userId = msg.from?.id;
+          const chatId = msg.chat.id;
+          this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
+
+          // (Тут також варто додати перевірку на адміна)
+          // const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
+          // if (!ADMIN_USER_ID || String(userId) !== ADMIN_USER_ID) { /* ... return ... */ }
+
+          try {
+              await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
+              
+              // --- ВИКЛИКАЄМО ОНОВЛЕННЯ ТІЛЬКИ КЕШУ ГРАФІКІВ ---
+              await this.scheduleCacheService.fetchAndCacheSchedules();
+              // --- -------------------------------------------- ---
+
+              await telegramBot.sendMessage(chatId, '✅ Графіки оновлено!');
+              this.logger.log(`/schedule command processed successfully for place ${place.id}`);
+          } catch (error) {
+              this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+              await telegramBot.sendMessage(chatId, '❌ Помилка під час завантаження графіків. Перевірте логи.');
+          }
+      });
+      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /schedule ---      
 
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
