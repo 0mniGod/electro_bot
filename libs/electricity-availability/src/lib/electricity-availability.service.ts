@@ -27,6 +27,7 @@ import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { firstValueFrom } from 'rxjs';
 import { HistoryItem } from './history-item.type';
+import { ScheduleCacheService } from './schedule-cache.service';
 import {
   NotificationBotService,
   RESP_ENABLED_SHORT,
