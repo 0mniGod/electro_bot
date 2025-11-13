@@ -1374,7 +1374,21 @@ telegramBot.onText(/\/update/, async (msg) => {
       return undefined;
     }
   }
+  
+  public getMainTelegramBotInstance(): TelegramBot | undefined {
+    this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
+    
+    // Оскільки у нас лише один бот, ми можемо взяти його ID з хардкоду
+    const botEntry = this.placeBots[HARDCODED_PLACE.id]; 
 
+    if (botEntry && botEntry.bot.isEnabled) {
+      this.logger.log(`Found active bot instance for placeId: ${botEntry.bot.placeId}`);
+      return botEntry.telegramBot;
+    } else {
+      this.logger.warn('No active bot instance found in this.placeBots during getMainTelegramBotInstance');
+      return undefined;
+    }
+  }
   private async notifyBotDisabled(params: {
     readonly chatId: number;
     readonly telegramBot: TelegramBot;
