@@ -45,6 +45,10 @@ import {
 
 const MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES = 30;
 const BULK_NOTIFICATION_DELAY_IN_MS = 50;
+const TZ_KYIV = 'Europe/Kyiv';
+const dt_util_mock = {
+  now: (timeZone: string) => convertToTimeZone(new Date(), { timeZone }),
+};
 
 @Injectable()
 // Додаємо implements OnModuleInit до класу
@@ -109,6 +113,170 @@ constructor(
   }
   // ------------------------------------
 
+// Властивість для кешування, щоб не надсилати попередження повторно
+  private warnedOutageSlots = new Set<string>(); // Зберігає "timestamp|placeId"
+
+  /**
+   * (Вимога 4) CRON JOB: Перевіряє кожні 5 хвилин, чи не очікується
+   * відключення світла (за 55-60 хвилин)
+   */
+  @Cron('*/5 * * * *') // Кожні 5 хвилин
+  async checkUpcomingOutages(): Promise<void> {
+    this.logger.log('[WarningCron] Running check for upcoming outages...');
+    
+    const now = dt_util_mock.now(TZ_KYIV); // Використовуємо наш імітований dt_util
+    
+    // Очищуємо старі попередження з кешу
+    this.warnedOutageSlots.forEach(slotKey => {
+      const timestamp = new Date(slotKey.split('|')[0]);
+      if (differenceInMinutes(now, timestamp) > 120) { // Видаляємо, якщо старше 2 годин
+        this.warnedOutageSlots.delete(slotKey);
+      }
+    });
+
+    // --- Жорстко вказуємо наші ключі (як ми домовились, без БД) ---
+    const PLACE_ID_TO_SCHEDULE = "001"; // ID вашого місця
+    const REGION_KEY = "kyiv";
+    const QUEUE_KEY = "2.1"; // Ваша група
+    // --- ---------------------------------------------------- ---
+
+    // Отримуємо об'єкт "місце" з кешу (який завантажується при старті)
+    const place = this.places[PLACE_ID_TO_SCHEDULE];
+
+    // Перевіряємо, чи існує це місце і чи воно активне
+    if (!place || place.isDisabled) {
+        this.logger.debug(`[WarningCron] Place ${PLACE_ID_TO_SCHEDULE} is disabled or not found. Skipping.`);
+        return;
+    }
+
+    try {
+      // Отримуємо графік з кешу
+      const prediction = this.scheduleCacheService.getSchedulePrediction(
+        REGION_KEY,
+        QUEUE_KEY
+      );
+
+      // Нас цікавить або гарантоване вимкнення (2), або можливе (0)
+      const nextOutageTime = prediction.scheduleDisableMoment || prediction.schedulePossibleDisableMoment;
+      
+      if (!nextOutageTime) {
+        // this.logger.debug(`[WarningCron] No upcoming outages found for ${PLACE_ID_TO_SCHEDULE}.`);
+        return; // Графік є, але вимкнень не заплановано
+      }
+      
+      const diffInMinutes = differenceInMinutes(nextOutageTime, now);
+      
+      // --- Логіка попередження: за 60-55 хвилин до події ---
+      if (diffInMinutes >= 55 && diffInMinutes <= 60) {
+        
+        const slotKey = `${nextOutageTime.toISOString()}|${place.id}`;
+        
+        // Перевіряємо, чи ми вже не попереджали про цей слот
+        if (this.warnedOutageSlots.has(slotKey)) {
+          this.logger.debug(`[WarningCron] Already warned about ${slotKey}. Skipping.`);
+          return; // Вже попереджали
+        }
+
+        // Попереджаємо!
+        this.logger.log(`[WarningCron] Sending warning for place ${place.id}. Outage at ${nextOutageTime.toISOString()}`);
+        
+        const timeStr = format(nextOutageTime, 'HH:mm');
+        const message = `💡 **Увага!**\n\nЗгідно з графіком, о **${timeStr}** очікується **можливе або гарантоване** відключення світла.\n\n🔋 Не забудьте зарядити ваші пристрої!`;
+        
+        // Використовуємо кеш підписників
+        await this.sendBulkNotificationsToPlace(place.id, message);
+        
+        // Додаємо в кеш, щоб не повторювати
+        this.warnedOutageSlots.add(slotKey);
+      }
+      
+    } catch (error) {
+      this.logger.error(`[WarningCron] Error checking warnings for place ${place.id}: ${error}`);
+    }
+    
+    this.logger.log('[WarningCron] Finished check.');
+  }
+
+
+  /**
+   * (Вимога 1) Надсилає повідомлення про оновлення ГРАФІКУ всім підписникам
+   * УСІХ активних ботів. Використовує кеш підписників.
+   */
+  public async sendScrapedNotification(message: string): Promise<void> {
+    this.logger.log(`[ScrapedNotify] Sending global schedule update: "${message.substring(0, 50)}..."`);
+    
+    // Ітеруємо по всіх місцях, для яких є кеш підписників
+    for (const placeId in this.subscriberCache) {
+      const placeSubscribers = this.subscriberCache[placeId];
+      if (placeSubscribers && placeSubscribers.length > 0) {
+        await this.sendBulkNotificationsToPlace(placeId, message);
+      }
+    }
+    this.logger.log('[ScrapedNotify] Finished sending global schedule update.');
+  }
+
+  /**
+   * (Вимога 4) Надсилає повідомлення (напр. попередження) підписникам
+   * КОНКРЕТНОГО місця, використовуючи кеш.
+   * Цей метод є публічним, щоб його міг викликати WarningCron
+   */
+  public async sendBulkNotificationsToPlace(placeId: string, message: string): Promise<void> {
+    const botEntry = this.placeBots[placeId];
+    const chatIds = this.subscriberCache[placeId]; // <--- Беремо з кешу
+
+    if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) {
+      this.logger.warn(`[BulkNotify] No active bot found for place ${placeId}. Skipping.`);
+      return;
+    }
+    if (!chatIds || chatIds.length === 0) {
+      this.logger.debug(`[BulkNotify] No cached subscribers for place ${placeId}. Skipping.`);
+      return;
+    }
+
+    this.logger.log(`[BulkNotify] Sending message to ${chatIds.length} cached subscribers for place ${placeId}...`);
+    
+    let successCount = 0;
+    let blockedCount = 0;
+    let errorCount = 0;
+    
+    // Використовуємо HTML, оскільки повідомлення містить форматування
+    const parseMode = 'HTML'; 
+    // Проста заміна Markdown-подібного ** на HTML <b>
+    const escapedMessage = message
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') 
+        .replace(/\n/g, '<br>'); // Заміна переносів рядків
+
+    for (const chatId of chatIds) {
+      try {
+        await this.sleep({ ms: BULK_NOTIFICATION_DELAY_IN_MS }); // Невелика затримка
+        await botEntry.telegramBot.sendMessage(chatId, escapedMessage, { parse_mode: parseMode });
+        successCount++;
+      } catch (e: any) {
+        const errorCode = e?.response?.body?.error_code;
+        const errorDesc = e?.response?.body?.description || e?.message || JSON.stringify(e);
+
+        if (errorCode === 403 && (errorDesc.includes('blocked') || errorDesc.includes('deactivated'))) {
+          this.logger.log(`User ${chatId} blocked bot for place ${placeId}. Removing subscription from DB and Cache.`);
+          blockedCount++;
+          try {
+            await this.userRepository.removeUserSubscription({ placeId, chatId });
+            // Видаляємо з кешу
+            const index = this.subscriberCache[placeId].indexOf(chatId);
+            if (index > -1) this.subscriberCache[placeId].splice(index, 1);
+          } catch (removeError) {
+            this.logger.error(`Failed to remove blocked user ${chatId} subscription for place ${placeId}: ${removeError}`);
+          }
+        } else {
+          errorCount++;
+          this.logger.warn(`Failed to send notification to chat ${chatId} (place ${placeId}). Code: ${errorCode}. Desc: ${errorDesc}`);
+        }
+      }
+    }
+    this.logger.log(`[BulkNotify] Finished for place ${placeId}. Success: ${successCount}, Blocked: ${blockedCount}, Errors: ${errorCount}`);
+  }
+
+  // --- КІНЕЦЬ БЛОКУ ---
+  
   public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
     const allPlaces = Object.values(this.places);
     this.logger.log(`Starting notifyAllPlacesAboutPreviousMonthStats for ${allPlaces.length} places.`); // Лог
@@ -749,11 +917,36 @@ constructor(
       let scheduleDisableMoment: Date | undefined;
       let schedulePossibleDisableMoment: Date | undefined;
 
-      // --- Закоментований блок ---
-      /*
-      if (place.kyivScheduleGroupId === 0 || place.kyivScheduleGroupId) { ... }
-      */
-      // --- Кінець закоментованого блоку ---
+let scheduleEnableMoment: Date | undefined;
+      let schedulePossibleEnableMoment: Date | undefined;
+      let scheduleDisableMoment: Date | undefined;
+      let schedulePossibleDisableMoment: Date | undefined;
+
+      // --- Жорстко вказуємо наші ключі ---
+      const PLACE_ID_TO_SCHEDULE = "001"; // ID вашого місця
+      const REGION_KEY = "kyiv";
+      const QUEUE_KEY = "2.1"; // Ваша група
+
+      // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
+      if (place.id === PLACE_ID_TO_SCHEDULE) {
+        this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
+        try {
+            const prediction = this.scheduleCacheService.getSchedulePrediction(
+              REGION_KEY,
+              QUEUE_KEY
+            );
+            
+            scheduleEnableMoment = prediction.scheduleEnableMoment;
+            schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
+            scheduleDisableMoment = prediction.scheduleDisableMoment;
+            schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+
+        } catch (scheduleError) {
+             this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
+        }
+      } else {
+         this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
+      }
 
       const latestTime = convertToTimeZone(latest.time, {
         timeZone: place.timezone,
