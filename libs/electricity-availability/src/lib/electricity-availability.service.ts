@@ -35,10 +35,10 @@ import {
   RESP_ENABLED_DETAILED,
   RESP_DISABLED_SUSPICIOUS,
   RESP_DISABLED_DETAILED,
-  MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES, // <--- Важливо
 } from '@electrobot/bot';
 // import { ElectricityRepository } from './electricity.repository'; // <--- ВИДАЛЕНО
 
+const MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES = 30;
 const API_KEY = 'demo';
 
 // Інтерфейс для запису в історію
