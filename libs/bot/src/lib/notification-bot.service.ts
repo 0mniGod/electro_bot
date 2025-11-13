@@ -287,8 +287,8 @@ constructor(
           blockedCount++;
           // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
           // Видаляємо з кешу
-          const index = this.subscriberCache[placeid].indexOf(chatId);
-          if (index > -1) this.subscriberCache[placeid].splice(index, 1);
+          const index = this.subscriberCache[placeId].indexOf(chatId);
+          if (index > -1) this.subscriberCache[placeId].splice(index, 1);
         } else {
           errorCount++;
           this.logger.warn(`Failed to send notification to chat ${chatId} (place ${placeId}). Code: ${errorCode}. Desc: ${errorDesc}`);
