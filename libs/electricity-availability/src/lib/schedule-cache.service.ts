@@ -463,6 +463,79 @@ constructor(
       return { time: null, status: LightStatus.UNKNOWN };
     }
   }
+
+  /**
+ * (НОВИЙ МЕТОД)
+ * Знаходить час НАСТУПНОЇ запланованої зміни статусу після поточного часу.
+ */
+public findNextScheduledChange(
+  now: Date,
+  regionKey: string,
+  queueKey: string
+): { time: Date | null, status: LightStatus } {
+
+  if (!this.scheduleCache) {
+    this.logger.warn('[FindNextChange] Schedule cache is empty.');
+    return { time: null, status: LightStatus.UNKNOWN };
+  }
+
+  try {
+    const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+    const schedule = region?.schedule[queueKey];
+    const dateTodayStr = this.scheduleCache.date_today;
+    const slotsToday = schedule ? schedule[dateTodayStr] : null;
+
+    if (!slotsToday) {
+      this.logger.warn(`[FindNextChange] No schedule found for ${regionKey}/${queueKey} on ${dateTodayStr}`);
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
+
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTotalMinutes = currentHour * 60 + currentMinute;
+
+    // Отримаємо статус на момент "зараз"
+    const nowSlotMinute = currentMinute < 30 ? 0 : 30;
+    const nowSlotKey = `${String(currentHour).padStart(2, '0')}:${String(nowSlotMinute).padStart(2, '0')}`;
+    const currentStatus: LightStatus = slotsToday[nowSlotKey] ?? LightStatus.UNKNOWN;
+
+    let previousStatus = currentStatus;
+
+    // Сканиуємо від наступного півгодинного слоту до кінця дня
+    for (let hour = currentHour; hour < 24; hour++) {
+      for (let minute of [0, 30]) {
+
+        const slotTotalMinutes = hour * 60 + minute;
+
+        // Пропускаємо всі слоти до поточного моменту
+        if (slotTotalMinutes <= currentTotalMinutes) {
+          continue;
+        }
+
+        const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
+
+        // Якщо статус змінився
+        if (slotStatus !== previousStatus) {
+          const slotDate = new Date(`${dateTodayStr}T${timeStr}:00.000Z`);
+          const localTime = convertToTimeZone(slotDate, { timeZone: TZ_KYIV });
+
+          return { time: localTime, status: slotStatus };
+        }
+
+        previousStatus = slotStatus;
+      }
+    }
+
+    // Якщо змін не знайдено
+    return { time: null, status: LightStatus.UNKNOWN };
+
+  } catch (error) {
+    this.logger.error(`[FindNextChange] Error finding next change: ${error}`);
+    return { time: null, status: LightStatus.UNKNOWN };
+  }
+}
+
   
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
