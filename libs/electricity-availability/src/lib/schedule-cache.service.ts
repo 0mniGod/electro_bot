@@ -9,7 +9,7 @@ import { uk } from 'date-fns/locale';
 
 // --- Імітація dt_util з Home Assistant ---
 // (Ми не можемо імпортувати 'homeassistant-util-dt', тому створимо свою версію)
-const TZ_KYIV = 'Europe/Kyiv';
+const TZ_KYIV = 'Europe/Kiev';
 const dt_util_mock = {
   now: (timeZone: string) => convertToTimeZone(new Date(), { timeZone }),
   as_utc: (date: Date) => date.toISOString(), // Просто конвертуємо в ISO UTC
