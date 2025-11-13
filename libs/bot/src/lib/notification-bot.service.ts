@@ -909,151 +909,168 @@ try {
   }
 
   public async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
-    readonly placeId: string;
+    readonly place: Place; // <--- Приймаємо Place
+    readonly msg: string;   // <--- Приймаємо готове повідомлення
   }): Promise<void> {
-    const { placeId } = params;
-    // --- ДОДАНО ЛОГУВАННЯ ---
-    this.logger.log(`Starting notifyAllPlaceSubscribersAboutElectricityAvailabilityChange for place ${placeId}`);
-    // -----------------------
-    const place = this.places[placeId];
-    if (!place) {
-      this.logger.error(
-        `Place ${placeId} not found in memory cache - skipping subscriber notification`
-      );
+    const { place, msg } = params;
+    
+    if (!place || !msg) {
+      this.logger.error('notifyAllPlaceSubscribersAboutElectricityAvailabilityChange called with missing params');
       return;
     }
-    if (place.isDisabled) {
-      this.logger.log(`Place ${placeId} is disabled, skipping notification.`); // Лог
-      return;
-    }
-    try { // Додано try...catch
-      const [latest, previous] =
-        await this.electricityAvailabilityService.getLatestPlaceAvailability({
-          placeId,
-          limit: 2,
-        });
-      if (!latest) {
-        this.logger.error(
-          `Electricity availability changed event, however no availability data in the repo for place ${placeId}`
-        );
-        return;
-      }
-      // --- ДОДАНО ЛОГУВАННЯ ---
-      this.logger.log(`Latest/Previous availability for notification (place ${placeId}): ${JSON.stringify({latest, previous})}`);
-      // -----------------------
-
-      let scheduleEnableMoment: Date | undefined;
-      let schedulePossibleEnableMoment: Date | undefined;
-      let scheduleDisableMoment: Date | undefined;
-      let schedulePossibleDisableMoment: Date | undefined;
-
-      // --- Жорстко вказуємо наші ключі ---
-      const PLACE_ID_TO_SCHEDULE = "001"; // ID вашого місця
-      const REGION_KEY = "kyiv";
-      const QUEUE_KEY = "2.1"; // Ваша група
-
-      // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
-if (place.id === PLACE_ID_TO_SCHEDULE) {
-        this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
-        try {
-            // 1. Отримуємо прогноз (як і раніше)
-            const prediction = this.scheduleCacheService.getSchedulePrediction(
-              REGION_KEY,
-              QUEUE_KEY
-            );
-            
-            scheduleEnableMoment = prediction.scheduleEnableMoment;
-            schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
-            scheduleDisableMoment = prediction.scheduleDisableMoment;
-            schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
-
-            // --- 2. ДОДАЄМО ОТРИМАННЯ ПОВНОГО ГРАФІКА ---
-            todaysScheduleString = this.scheduleCacheService.getTodaysScheduleAsText(
-              REGION_KEY,
-              QUEUE_KEY
-            );
-            // --- ------------------------------------ ---
-
-        } catch (scheduleError) {
-             this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
-        }
-      } else {
-         this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
-      }
-      
-      // Оголошуємо змінну перед блоком
-      let todaysScheduleString: string | undefined;
-
-      const latestTime = convertToTimeZone(latest.time, {
-        timeZone: place.timezone,
-      });
-      const when = format(latestTime, 'HH:mm dd.MM', { locale: uk });
-      let response: string;
-      if (!previous) {
-        this.logger.log(`No previous state found for place ${placeId}, sending short notification.`); // Лог
-        const response = latest.is_available
-        ? RESP_CURRENTLY_AVAILABLE({
-            // ...
-            scheduleDisableMoment,
-            schedulePossibleDisableMoment,
-            todaysSchedule: todaysScheduleString // <--- ПЕРЕДАЄМО РЯДОК СЮДИ
-          })
-        : RESP_CURRENTLY_UNAVAILABLE({
-            // ...
-            scheduleEnableMoment,
-            schedulePossibleEnableMoment,
-            todaysSchedule: todaysScheduleString // <--- І СЮДИ
-          });
-      } else {
-        const previousTime = convertToTimeZone(previous.time, {
-          timeZone: place.timezone,
-        });
-        const howLong = formatDistance(latestTime, previousTime, {
-          locale: uk,
-          includeSeconds: false,
-        });
-        const diffInMinutes = Math.abs(
-          differenceInMinutes(previousTime, latestTime)
-        );
-        this.logger.log(`Calculating notification for place ${placeId}. Time diff: ${diffInMinutes} minutes.`); // Лог
-
-        if (latest.is_available) {
-          response =
-            diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-              ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name })
-              : RESP_ENABLED_DETAILED({
-                  when,
-                  howLong,
-                  place: place.name,
-                  scheduleDisableMoment, // undefined
-                  schedulePossibleDisableMoment, // undefined
-                });
-        } else {
-          response =
-            diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-              ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name })
-              : RESP_DISABLED_DETAILED({
-                  when,
-                  howLong,
-                  place: place.name,
-                  scheduleEnableMoment, // undefined
-                  schedulePossibleEnableMoment, // undefined
-                });
-        }
-      }
-      // --- ДОДАНО ЛОГУВАННЯ ---
-      this.logger.log(`Prepared notification message for place ${placeId}: "${response.substring(0, 50)}..."`);
-      // -----------------------
-      // Переконуємось, що place існує перед викликом
-      if (place) {
-          this.notifyAllPlaceSubscribers({ place, msg: response });
-      } else {
-          this.logger.error(`Place object was null/undefined before calling notifyAllPlaceSubscribers for placeId ${placeId}`);
-      }
-    } catch (error) {
-      this.logger.error(`Error in notifyAllPlaceSubscribersAboutElectricityAvailabilityChange for place ${placeId}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-    }
+    
+    this.logger.log(`Received request to notify subscribers for place ${place.id}`);
+    
+    // Просто викликаємо інший метод, який працює з кешем
+    await this.notifyAllPlaceSubscribers({ place, msg });
   }
+  
+  // public async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
+  //   readonly placeId: string;
+  // }): Promise<void> {
+  //   const { placeId } = params;
+  //   // --- ДОДАНО ЛОГУВАННЯ ---
+  //   this.logger.log(`Starting notifyAllPlaceSubscribersAboutElectricityAvailabilityChange for place ${placeId}`);
+  //   // -----------------------
+  //   const place = this.places[placeId];
+  //   if (!place) {
+  //     this.logger.error(
+  //       `Place ${placeId} not found in memory cache - skipping subscriber notification`
+  //     );
+  //     return;
+  //   }
+  //   if (place.isDisabled) {
+  //     this.logger.log(`Place ${placeId} is disabled, skipping notification.`); // Лог
+  //     return;
+  //   }
+  //   try { // Додано try...catch
+  //     const [latest, previous] =
+  //       await this.electricityAvailabilityService.getLatestPlaceAvailability({
+  //         placeId,
+  //         limit: 2,
+  //       });
+  //     if (!latest) {
+  //       this.logger.error(
+  //         `Electricity availability changed event, however no availability data in the repo for place ${placeId}`
+  //       );
+  //       return;
+  //     }
+  //     // --- ДОДАНО ЛОГУВАННЯ ---
+  //     this.logger.log(`Latest/Previous availability for notification (place ${placeId}): ${JSON.stringify({latest, previous})}`);
+  //     // -----------------------
+
+  //     let scheduleEnableMoment: Date | undefined;
+  //     let schedulePossibleEnableMoment: Date | undefined;
+  //     let scheduleDisableMoment: Date | undefined;
+  //     let schedulePossibleDisableMoment: Date | undefined;
+
+  //     // --- Жорстко вказуємо наші ключі ---
+  //     const PLACE_ID_TO_SCHEDULE = "001"; // ID вашого місця
+  //     const REGION_KEY = "kyiv";
+  //     const QUEUE_KEY = "2.1"; // Ваша група
+
+  //     // Оголошуємо змінну перед блоком
+  //     let todaysScheduleString: string | undefined;
+      
+  //     // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
+  //     if (place.id === PLACE_ID_TO_SCHEDULE) {
+  //       this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
+  //       try {
+  //           // 1. Отримуємо прогноз (як і раніше)
+  //           const prediction = this.scheduleCacheService.getSchedulePrediction(
+  //             REGION_KEY,
+  //             QUEUE_KEY
+  //           );
+            
+  //           scheduleEnableMoment = prediction.scheduleEnableMoment;
+  //           schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
+  //           scheduleDisableMoment = prediction.scheduleDisableMoment;
+  //           schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+
+  //           // --- 2. ДОДАЄМО ОТРИМАННЯ ПОВНОГО ГРАФІКА ---
+  //           todaysScheduleString = this.scheduleCacheService.getTodaysScheduleAsText(
+  //             REGION_KEY,
+  //             QUEUE_KEY
+  //           );
+  //           // --- ------------------------------------ ---
+
+  //       } catch (scheduleError) {
+  //            this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
+  //       }
+  //     } else {
+  //        this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
+  //     }
+
+  //     const latestTime = convertToTimeZone(latest.time, {
+  //       timeZone: place.timezone,
+  //     });
+  //     const when = format(latestTime, 'HH:mm dd.MM', { locale: uk });
+  //     let response: string;
+  //     if (!previous) {
+  //       this.logger.log(`No previous state found for place ${placeId}, sending short notification.`); // Лог
+  //       const response = latest.is_available
+  //       ? RESP_CURRENTLY_AVAILABLE({
+  //           // ...
+  //           scheduleDisableMoment,
+  //           schedulePossibleDisableMoment,
+  //           todaysSchedule: todaysScheduleString // <--- ПЕРЕДАЄМО РЯДОК СЮДИ
+  //         })
+  //       : RESP_CURRENTLY_UNAVAILABLE({
+  //           // ...
+  //           scheduleEnableMoment,
+  //           schedulePossibleEnableMoment,
+  //           todaysSchedule: todaysScheduleString // <--- І СЮДИ
+  //         });
+  //     } else {
+  //       const previousTime = convertToTimeZone(previous.time, {
+  //         timeZone: place.timezone,
+  //       });
+  //       const howLong = formatDistance(latestTime, previousTime, {
+  //         locale: uk,
+  //         includeSeconds: false,
+  //       });
+  //       const diffInMinutes = Math.abs(
+  //         differenceInMinutes(previousTime, latestTime)
+  //       );
+  //       this.logger.log(`Calculating notification for place ${placeId}. Time diff: ${diffInMinutes} minutes.`); // Лог
+
+  //       if (latest.is_available) {
+  //         response =
+  //           diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
+  //             ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name })
+  //             : RESP_ENABLED_DETAILED({
+  //                 when,
+  //                 howLong,
+  //                 place: place.name,
+  //                 scheduleDisableMoment, // undefined
+  //                 schedulePossibleDisableMoment, // undefined
+  //               });
+  //       } else {
+  //         response =
+  //           diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
+  //             ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name })
+  //             : RESP_DISABLED_DETAILED({
+  //                 when,
+  //                 howLong,
+  //                 place: place.name,
+  //                 scheduleEnableMoment, // undefined
+  //                 schedulePossibleEnableMoment, // undefined
+  //               });
+  //       }
+  //     }
+  //     // --- ДОДАНО ЛОГУВАННЯ ---
+  //     this.logger.log(`Prepared notification message for place ${placeId}: "${response.substring(0, 50)}..."`);
+  //     // -----------------------
+  //     // Переконуємось, що place існує перед викликом
+  //     if (place) {
+  //         this.notifyAllPlaceSubscribers({ place, msg: response });
+  //     } else {
+  //         this.logger.error(`Place object was null/undefined before calling notifyAllPlaceSubscribers for placeId ${placeId}`);
+  //     }
+  //   } catch (error) {
+  //     this.logger.error(`Error in notifyAllPlaceSubscribersAboutElectricityAvailabilityChange for place ${placeId}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+  //   }
+  // }
 
   private async notifyAllPlaceSubscribersAboutPreviousMonthStats(params: {
     readonly place: Place;
