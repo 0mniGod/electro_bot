@@ -309,7 +309,7 @@ constructor(
           const isCurrent = hour === currentHour && ((minute === 0 && currentMinute < 30) || (minute === 30 && currentMinute >= 30));
           
           if (isCurrent) {
-            prefixEmoji = '✅'; // Поточний
+            prefixEmoji = EMOJ_GREEN_CIRCLE; // Поточний
           } else if (isPast) {
             prefixEmoji = '🔙'; // Минулий
           } else {
