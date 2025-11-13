@@ -52,7 +52,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
 
   constructor(
     // --- ВИДАЛЕНО ElectricityRepository ---
-    private readonly placeRepository: PlaceRepository,
+    //private readonly placeRepository: PlaceRepository,
     private readonly httpService: HttpService,
     @Inject(forwardRef(() => NotificationBotService))
     private readonly notificationBotService: NotificationBotService,
@@ -66,22 +66,32 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     this.logger.log('ElectricityAvailabilityService onModuleInit finished.');
   }
 
-  /**
-   * Оновлює кеш місць з БД (потрібно 1 раз при старті)
-   * і скидає кеш статусів.
-   */
-  public async refreshInternalCache(): Promise<void> {
-    this.logger.log('[Cache] Starting internal cache refresh...');
+  const HARDCODED_PLACE_FOR_EA: Place = {
+      id: "001",
+      name: "дома",
+      checkType: 'ping',
+      host: "176.100.14.52",
+      timezone: "Europe/Kyiv",
+      isDisabled: false,
+      disableMonthlyStats: false,
+      scheduleRegionKey: "kyiv", 
+      scheduleQueueKey: "2.1"
+  };
+  
+public async refreshInternalCache(): Promise<void> {
+    this.logger.log('[Cache] Starting internal cache refresh from hardcode...');
     try {
-      this.cachedPlaces = await this.placeRepository.getAllPlaces();
-      this.logger.log(`[Cache] Loaded ${this.cachedPlaces.length} places.`);
+      // 1. Використовуємо хардкод
+      this.cachedPlaces = [HARDCODED_PLACE_FOR_EA]; 
+      this.logger.log(`[Cache] Loaded ${this.cachedPlaces.length} places from hardcode.`);
 
-      // Скидаємо кеш статусів (вони відновляться при першій перевірці)
+      // 2. Скидаємо кеш статусів
       this.lastKnownStatus = {};
-      this.history = []; // Очищуємо історію при перезапуску
+      this.history = []; // Очищуємо історію
       this.logger.log('[Cache] In-memory history and statuses cleared.');
+
     } catch (error) {
-      this.logger.error(`[Cache] Failed to load places from DB: ${error}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(`[Cache] Failed to refresh internal cache: ${error}`, error instanceof Error ? error.stack : undefined);
     }
     this.logger.log('[Cache] Internal cache refresh finished.');
   }
