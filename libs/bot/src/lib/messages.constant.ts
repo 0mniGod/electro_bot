@@ -179,17 +179,17 @@ export const EXPECTED_ENABLE_MOMENT = (params: {
   readonly schedulePossibleEnableMoment?: Date;
 }) =>
   params.scheduleEnableMoment && !params.schedulePossibleEnableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на включення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на включення о ${format(
         params.scheduleEnableMoment,
         'HH:mm'
       )}.\n`
     : !params.scheduleEnableMoment && params.schedulePossibleEnableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на можливе включення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на можливе включення о ${format(
         params.schedulePossibleEnableMoment,
         'HH:mm'
       )} (сіра зона).\n`
     : params.scheduleEnableMoment && params.schedulePossibleEnableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на включення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на включення о ${format(
         params.scheduleEnableMoment,
         'HH:mm'
       )}, ${EMOJ_CROSSED_FINGERS}або навіть раніше - о ${format(
@@ -202,17 +202,17 @@ export const EXPECTED_DISABLE_MOMENT = (params: {
   readonly schedulePossibleDisableMoment?: Date;
 }) =>
   params.scheduleDisableMoment && !params.schedulePossibleDisableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на вимкнення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на вимкнення о ${format(
         params.scheduleDisableMoment,
         'HH:mm'
       )}.\n`
     : !params.scheduleDisableMoment && params.schedulePossibleDisableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на можливе вимкнення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на можливе вимкнення о ${format(
         params.schedulePossibleDisableMoment,
         'HH:mm'
       )} (сіра зона).\n`
     : params.scheduleDisableMoment && params.schedulePossibleDisableMoment
-    ? `\n${EMOJ_SLOT_MACHINE}${EMOJ_CRYSTAL_BALL}${EMOJ_GAME_DIE} Згідно графіка Yasno очікуємо на вимкнення о ${format(
+    ? `\n$ Згідно графіка Yasno очікуємо на вимкнення о ${format(
         params.scheduleDisableMoment,
         'HH:mm'
       )}, ${EMOJ_SYMBOLS_OVER_MOUTH}або навіть раніше - о ${format(
