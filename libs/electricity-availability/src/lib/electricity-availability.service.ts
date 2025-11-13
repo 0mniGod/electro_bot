@@ -440,8 +440,59 @@ public async refreshInternalCache(): Promise<void> {
       
       // 4. Надсилаємо сповіщення
       this.logger.log(`Triggering notification for place ${place.id}`);
-      // (цей метод асинхронний, але ми не чекаємо його завершення)
-      //this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
+      
+      try {
+        const [latest, previous] = await this.getLatestPlaceAvailability({
+            placeId: place.id,
+            limit: 2,
+        });
+
+        if (!latest) {
+          this.logger.error(`[Notify] Cannot notify for ${place.id}, 'latest' state is missing from in-memory history.`);
+          return;
+        }
+
+        let scheduleEnableMoment: Date | undefined;
+        let schedulePossibleEnableMoment: Date | undefined;
+        let scheduleDisableMoment: Date | undefined;
+        let schedulePossibleDisableMoment: Date | undefined;
+        // --- ---------------------------------------------------- ---
+
+        const latestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
+        const when = format(latestTime, 'HH:mm dd.MM', { locale: uk });
+        let response: string;
+
+        if (!previous) {
+          response = latest.is_available
+            ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment })
+            : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment });
+        } else {
+          const previousTime = convertToTimeZone(previous.time, { timeZone: place.timezone });
+          const howLong = formatDistance(latestTime, previousTime, { locale: uk, includeSeconds: false });
+          const diffInMinutes = Math.abs(differenceInMinutes(previousTime, latestTime));
+
+          if (latest.is_available) {
+            response =
+              diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
+                ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name })
+                : RESP_ENABLED_DETAILED({ when, howLong, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment });
+          } else {
+            response =
+              diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
+                ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name })
+                : RESP_DISABLED_DETAILED({ when, howLong, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment });
+          }
+        }
+        
+        this.logger.log(`[Notify] Prepared message for ${place.id}: "${response.substring(0, 50)}..."`);
+        
+        // Викликаємо оновлений метод
+        await this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ place, msg: response });
+
+      } catch (notifyError) {
+          this.logger.error(`[Notify] Error during notification generation for ${place.id}: ${notifyError}`);
+      }
+      // --- КІНЕЦЬ НОВОГО БЛОКУ ---
 
     } catch (error) {
       this.logger.error(`Error in handleAvailabilityChange for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
