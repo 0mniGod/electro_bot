@@ -431,7 +431,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       // 4. Надсилаємо сповіщення
       this.logger.log(`Triggering notification for place ${place.id}`);
       // (цей метод асинхронний, але ми не чекаємо його завершення)
-      this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
+      //this.notificationBotService.notifyAllPlaceSubscribersAboutElectricityAvailabilityChange({ placeId: place.id });
 
     } catch (error) {
       this.logger.error(`Error in handleAvailabilityChange for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
