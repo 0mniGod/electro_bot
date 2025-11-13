@@ -287,8 +287,8 @@ constructor(
           blockedCount++;
           // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
           // Видаляємо з кешу
-          const index = this.subscriberCache[place.id].indexOf(chatId);
-          if (index > -1) this.subscriberCache[place.id].splice(index, 1);
+          const index = this.subscriberCache[placeid].indexOf(chatId);
+          if (index > -1) this.subscriberCache[placeid].splice(index, 1);
         } else {
           errorCount++;
           this.logger.warn(`Failed to send notification to chat ${chatId} (place ${placeId}). Code: ${errorCode}. Desc: ${errorDesc}`);
@@ -340,7 +340,7 @@ constructor(
     }
     try {
         this.logger.log(`Handling /start message content: ${JSON.stringify(msg)}`); // Додатковий лог
-        const listedBotsMessage = await this.composeListedBotsMessage();
+        const listedBotsMessage = "";
         await telegramBot.sendMessage(
           msg.chat.id,
           RESP_START({ place: place.name, listedBotsMessage }),
@@ -884,7 +884,7 @@ try {
        }
        try {
           this.logger.log(`Handling /about message content: ${JSON.stringify(msg)}`); // Додатковий лог
-          const listedBotsMessage = await this.composeListedBotsMessage();
+          const listedBotsMessage = "";
           await telegramBot.sendMessage(
               msg.chat.id,
               RESP_ABOUT({ listedBotsMessage }),
