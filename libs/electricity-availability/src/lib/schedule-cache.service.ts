@@ -262,7 +262,7 @@ constructor(
    * (КРОК 2)
    * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО)
    */
-  public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
+public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
       return '<i>Графік на сьогодні ще не завантажено.</i>';
@@ -281,21 +281,22 @@ constructor(
 
       const scheduleLines: string[] = [];
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
-      // Отримуємо *поточну* годину та хвилини
+      
+      // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
       const currentHour = nowKyiv.getHours();
       const currentMinute = nowKyiv.getMinutes();
+      const currentTotalMinutes = currentHour * 60 + currentMinute;
+      // --- --------------------------------- ---
 
-      // Проходимо по всіх 48 слотах дня (00:00 ... 23:30)
       for (let hour = 0; hour < 24; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
           
           const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
           const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
           
-          let prefixEmoji: string; // 🔙, 🔘, 🔜
-          let statusEmoji: string; // 💡, 🌚, ❔
+          let prefixEmoji: string; 
+          let statusEmoji: string; 
 
-          // 1. Визначаємо статус (світло/темрява/можливо)
           if (slotStatus === LightStatus.ON) {
             statusEmoji = EMOJ_BULB; // 💡
           } else if (slotStatus === LightStatus.OFF) {
@@ -304,24 +305,27 @@ constructor(
             statusEmoji = EMOJ_GRAY_Q; // ❔
           }
           
-          // 2. Визначаємо час (минулий, поточний, майбутній)
-          const isPast = hour < currentHour || (hour === currentHour && minute < currentMinute && minute < 30);
-          const isCurrent = hour === currentHour && ((minute === 0 && currentMinute < 30) || (minute === 30 && currentMinute >= 30));
+          // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
+          const slotTotalMinutes = hour * 60 + minute;
           
+          // isCurrent: Поточний час знаходиться В ЦЬОМУ 30-хв слоті
+          const isCurrent = currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes < (slotTotalMinutes + 30);
+          // isPast: Початок слота вже минув
+          const isPast = slotTotalMinutes < currentTotalMinutes;
+          // --- --------------------------------- ---
+
           if (isCurrent) {
-            prefixEmoji = EMOJ_GREEN_CIRCLE; // Поточний
+            prefixEmoji = EMOJ_GREEN_CIRCLE; // 🟢
           } else if (isPast) {
-            prefixEmoji = '🔙'; // Минулий
+            prefixEmoji = '🔙'; 
           } else {
-            prefixEmoji = '🔜'; // Майбутній
+            prefixEmoji = '🔜';
           }
 
-          // Форматуємо рядок: [Префікс] [Час]: [Статус]
           scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
         }
       }
       
-      // Об'єднуємо сусідні однакові слоти для компактності
       return this.compressScheduleText(scheduleLines);
 
     } catch (error) {
@@ -346,40 +350,45 @@ private compressScheduleText(lines: string[]): string {
       let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
       
       for (let i = 1; i < lines.length; i++) {
-          const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
+          const currentLine = lines[i];
           
-          // Розбиваємо рядки на частини: ["🔙", "00:00:", "💡"]
           const startParts = startLine.split(' '); 
           const currentParts = currentLine.split(' ');
 
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
-          const startPrefix = startParts[0]; // 🔙
+          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v7) !!! ---
+          // Ми дивимось ТІЛЬКИ на статус (світло/темрява)
           const startStatus = startParts[2]; // 💡
-          const currentPrefix = currentParts[0]; // 🔙
           const currentStatus = currentParts[2]; // 💡
+          // --- --------------------------------- ---
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v6) !!! ---
-          // Зупиняємось, якщо змінився СТАТУС (💡/🌚) АБО ПРЕФІКС (🔙/🟢/🔜)
-          if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
+          // Якщо статус змінився...
+          if (startStatus !== currentStatus) {
               
               // 1. Беремо префікс (🔙) та час (00:00) з ПОЧАТКОВОГО рядка
-              const startTime = startParts[1].slice(0, -1); // "00:00"
+              const startPrefix = startParts[0]; 
+              const startTime = startParts[1].slice(0, -1);
               
               // 2. Беремо час кінця (це час початку ПОТОЧНОГО рядка)
-              const endTime = currentParts[1].slice(0, -1); // "03:30"
+              const endTime = currentParts[1].slice(0, -1);
               
-              // 3. Форматуємо: 🔙 00:00 - 03:30 💡 (без двокрапки в кінці)
+              // 3. Форматуємо: 🔙 00:00 - 03:30 💡
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
               
               // 4. Починаємо новий блок
               startLine = currentLine;
+          } else {
+              // Якщо статус той самий (💡 === 💡), АЛЕ поточний рядок "поточний" (🟢)
+              // нам потрібно оновити startLine, щоб префікс був 🟢.
+              const currentPrefix = currentParts[0];
+              if (currentPrefix === EMOJ_GREEN_CIRCLE) {
+                  startLine = currentLine;
+              }
           }
-          // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-          // Якщо статуси І префікси однакові, нічого не робимо (продовжуємо групувати)
       }
       
-      // Додаємо останній блок (від останньої зміни до кінця дня 00:00)
+      // Додаємо останній блок
       const lastParts = startLine.split(' ');
       if (lastParts.length < 3) return compressed.join('\n'); 
 
@@ -387,12 +396,11 @@ private compressScheduleText(lines: string[]): string {
       const lastStatus = lastParts[2];
       const lastStartTime = lastParts[1].slice(0, -1); 
 
-      // Форматуємо: 🟢 21:30 - 00:00 🌚
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
   }
-
+  
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
