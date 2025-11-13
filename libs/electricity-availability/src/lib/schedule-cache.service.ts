@@ -8,10 +8,11 @@ import { uk } from 'date-fns/locale';
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { NotificationBotService } from '@electrobot/bot';
 import {
-  EMOJ_BULB,
-  EMOJ_MOON,
-  EMOJ_CHECK_MARK,
-  EMOJ_GRAY_Q,
+  EMOJ_BULB,         
+  EMOJ_MOON,         
+  EMOJ_CHECK_MARK,   
+  EMOJ_GRAY_Q,       
+  EMOJ_HOURGLASS,    
 } from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
@@ -256,7 +257,11 @@ constructor(
     }
   }
 
-public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
+/**
+   * (КРОК 2)
+   * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО)
+   */
+  public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
       return '<i>Графік на сьогодні ще не завантажено.</i>';
@@ -275,7 +280,9 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
 
       const scheduleLines: string[] = [];
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
-      const currentSlotTime = startOfHalfHour(nowKyiv); // Отримуємо поточний 30-хв слот
+      // Отримуємо *поточну* годину та хвилини
+      const currentHour = nowKyiv.getHours();
+      const currentMinute = nowKyiv.getMinutes();
 
       // Проходимо по всіх 48 слотах дня (00:00 ... 23:30)
       for (let hour = 0; hour < 24; hour++) {
@@ -284,48 +291,32 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
           const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
           const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
           
-          // Створюємо об'єкт Date для цього слота
-          const slotDate = new Date(`${dateTodayStr}T${timeStr}:00.000Z`);
-          // (Важливо: date-fns-timezone може бути потрібен для точного порівняння,
-          // але для простого порівняння часу слота (який вже в Kyiv time) з поточним часом Kyiv time
-          // ми можемо порівняти години і хвилини)
-          
-          const slotTimeInKyiv = new Date(nowKyiv);
-          slotTimeInKyiv.setHours(hour, minute, 0, 0);
+          let prefixEmoji: string; // 🔙, 🔘, 🔜
+          let statusEmoji: string; // 💡, 🌚, ❔
 
-          let emoji: string;
-          let line: string;
-
-          // 1. Визначаємо, минулий це слот чи майбутній
-          if (isBefore(slotTimeInKyiv, currentSlotTime) || isEqual(slotTimeInKyiv, currentSlotTime)) {
-            // --- СЛОТ В МИНУЛОМУ АБО ПОТОЧНИЙ ---
-            emoji = EMOJ_CHECK_MARK; // ✅
-            
-            // Форматуємо: ✅ 08:00 - 08:30 (Світло є)
-            if (slotStatus === LightStatus.ON) {
-              line = `${emoji} ${timeStr}: ${EMOJ_BULB} (було)`;
-            } else if (slotStatus === LightStatus.OFF) {
-              line = `${emoji} ${timeStr}: ${EMOJ_MOON} (не було)`;
-            } else {
-              line = `${emoji} ${timeStr}: ${EMOJ_GRAY_Q} (можливо)`;
-            }
-            
+          // 1. Визначаємо статус (світло/темрява/можливо)
+          if (slotStatus === LightStatus.ON) {
+            statusEmoji = EMOJ_BULB; // 💡
+          } else if (slotStatus === LightStatus.OFF) {
+            statusEmoji = EMOJ_MOON; // 🌚
           } else {
-            // --- СЛОТ В МАЙБУТНЬОМУ ---
-            
-            // Форматуємо: ⏳ 18:00 - 18:30 (Світло буде)
-            if (slotStatus === LightStatus.ON) {
-              emoji = EMOJ_BULB; // 💡
-              line = `${emoji} ${timeStr}: (буде)`;
-            } else if (slotStatus === LightStatus.OFF) {
-              emoji = EMOJ_MOON; // 🌚
-              line = `${emoji} ${timeStr}: (не буде)`;
-            } else {
-              emoji = EMOJ_GRAY_Q; // ❔
-              line = `${emoji} ${timeStr}: (можливо)`;
-            }
+            statusEmoji = EMOJ_GRAY_Q; // ❔
           }
-          scheduleLines.push(line);
+          
+          // 2. Визначаємо час (минулий, поточний, майбутній)
+          const isPast = hour < currentHour || (hour === currentHour && minute < currentMinute && minute < 30);
+          const isCurrent = hour === currentHour && ((minute === 0 && currentMinute < 30) || (minute === 30 && currentMinute >= 30));
+          
+          if (isCurrent) {
+            prefixEmoji = '🔘'; // Поточний
+          } else if (isPast) {
+            prefixEmoji = '🔙'; // Минулий
+          } else {
+            prefixEmoji = '🔜'; // Майбутній
+          }
+
+          // Форматуємо рядок: [Префікс] [Час]: [Статус]
+          scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
         }
       }
       
@@ -341,37 +332,45 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
   /**
    * Допоміжний метод для об'єднання однакових слотів
    */
+/**
+   * Допоміжний метод для об'єднання однакових слотів (ОНОВЛЕНО)
+   */
   private compressScheduleText(lines: string[]): string {
       if (lines.length === 0) return '';
       
       const compressed: string[] = [];
-      let currentLine = lines[0];
-      let startTime = lines[0].split(' ')[1]; // Беремо час, напр. "00:00:"
+      let startLine = lines[0]; // Напр: "🔙 00:00: 💡"
       
-      // Видаляємо двокрапку з часу
-      startTime = startTime.replace(':', ''); 
-
       for (let i = 1; i < lines.length; i++) {
-          const nextLine = lines[i];
-          const currentStatus = currentLine.split('(')[1]; // (було)
-          const nextStatus = nextLine.split('(')[1]; // (буде)
+          const currentLine = lines[i];
           
-          if (currentStatus === nextStatus) {
-              // Статуси однакові, продовжуємо групувати
-              continue; 
-          } else {
-              // Статус змінився, завершуємо поточний блок
-              const endTimeStr = nextLine.split(' ')[1].replace(':', ''); // Час початку *наступного* слота
-              compressed.push(`${currentLine.split(':')[0]}: ${startTime} - ${endTimeStr} ${currentStatus}`);
+          // Отримуємо префікс (🔙) та статус (💡)
+          const startPrefix = startLine.split(' ')[0];
+          const startStatus = startLine.split(' ')[2];
+          const currentPrefix = currentLine.split(' ')[0];
+          const currentStatus = currentLine.split(' ')[2];
+          
+          // Якщо префікс (минуле/майбутнє) АБО статус (світло/темрява) змінилися
+          if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
+              // Завершуємо попередній блок
+              const startTime = startLine.split(' ')[1].replace(':', ''); // "00:00"
+              const endTime = currentLine.split(' ')[1].replace(':', ''); // "03:30" (початок нового)
+              
+              // Форматуємо: 🔙 00:00 - 03:30: 💡
+              compressed.push(`${startPrefix} ${startTime} - ${endTime}: ${startStatus}`);
               
               // Починаємо новий блок
-              currentLine = nextLine;
-              startTime = endTimeStr;
+              startLine = currentLine;
           }
+          // Якщо статуси однакові, просто продовжуємо цикл
       }
       
-      // Додаємо останній блок
-      compressed.push(`${currentLine.split(':')[0]}: ${startTime} - 00:00 ${currentLine.split('(')[1]}`);
+      // Додаємо останній блок (від останньої зміни до кінця дня)
+      const lastPrefix = startLine.split(' ')[0];
+      const lastStatus = startLine.split(' ')[2];
+      const lastStartTime = startLine.split(' ')[1].replace(':', '');
+      
+      compressed.push(`${lastPrefix} ${lastStartTime} - 00:00: ${lastStatus}`);
       
       return compressed.join('\n');
   }
