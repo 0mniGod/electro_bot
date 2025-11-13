@@ -283,7 +283,7 @@ constructor(
         const errorDesc = e?.response?.body?.description || e?.message || JSON.stringify(e);
 
         if (errorCode === 403 && (/* ... */)) {
-          this.logger.log(`User ${chatId} blocked bot for place ${place.id}. Removing subscription from Cache.`);
+          this.logger.log(`User ${chatId} blocked bot for place ${placeId}. Removing subscription from Cache.`);
           blockedCount++;
           // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
           // Видаляємо з кешу
