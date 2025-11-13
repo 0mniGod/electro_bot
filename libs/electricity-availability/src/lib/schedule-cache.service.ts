@@ -335,7 +335,7 @@ constructor(
 /**
    * Допоміжний метод для об'єднання однакових слотів (ОНОВЛЕНО)
    */
-  private compressScheduleText(lines: string[]): string {
+private compressScheduleText(lines: string[]): string {
       if (lines.length === 0) return '';
       
       const compressed: string[] = [];
@@ -344,11 +344,11 @@ constructor(
       for (let i = 1; i < lines.length; i++) {
           const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
           
-          // Розбиваємо рядки на частини
-          // startParts = [ "🔙", "00:00:", "💡" ]
+          // Розбиваємо рядки на частини: ["🔙", "00:00:", "💡"]
           const startParts = startLine.split(' '); 
           const currentParts = currentLine.split(' ');
 
+          // Перевірка, чи рядок має очікуваний формат
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
           const startPrefix = startParts[0]; // 🔙
@@ -359,28 +359,89 @@ constructor(
           // Якщо префікс (минуле/майбутнє) АБО статус (світло/темрява) змінилися...
           if (startPrefix !== currentPrefix || startStatus !== currentStatus) {
               
+              // 1. Беремо час початку (напр. "00:00:") і видаляємо останню ':'
               const startTime = startParts[1].slice(0, -1); // "00:00"
-              const endTime = currentParts[1].slice(0, -1); // "01:00"
               
-              // --- ВИДАЛЕНО ДВОКРАПКУ ПЕРЕД ${startStatus} ---
+              // 2. Беремо час кінця (це час початку поточного рядка)
+              const endTime = currentParts[1].slice(0, -1); // "03:30" (час початку *цього* рядка)
+              
+              // 3. Форматуємо: 🔙 00:00 - 03:30 💡 (без двокрапки в кінці)
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
               
+              // 4. Починаємо новий блок
               startLine = currentLine;
           }
+          // Якщо статуси однакові, нічого не робимо (продовжуємо групувати)
       }
       
-      // Додаємо останній блок
+      // Додаємо останній блок (від останньої зміни до кінця дня 00:00)
       const lastParts = startLine.split(' ');
-      if (lastParts.length < 3) return compressed.join('\n');
+      if (lastParts.length < 3) return compressed.join('\n'); 
 
       const lastPrefix = lastParts[0];
       const lastStatus = lastParts[2];
-      const lastStartTime = lastParts[1].slice(0, -1);
+      const lastStartTime = lastParts[1].slice(0, -1); // час останньої зміни
 
-      // --- ВИДАЛЕНО ДВОКРАПКУ ПЕРЕД ${lastStatus} ---
+      // Форматуємо: 🔜 20:30 - 00:00 🌚 (без двокрапки в кінці)
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
+  }
+
+  public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
+    if (!this.scheduleCache) {
+      this.logger.warn('[ScheduleText] Schedule cache is empty.');
+      return '<i>Графік на завтра ще не завантажено.</i>';
+    }
+
+    try {
+      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+      const schedule = region?.schedule[queueKey];
+      const dateTomorrowStr = this.scheduleCache.date_tomorrow;
+      
+      if (!dateTomorrowStr) {
+           return '<i>Дані на завтра ще не опубліковано.</i>';
+      }
+      
+      const slotsTomorrow = schedule ? schedule[dateTomorrowStr] : null;
+
+      if (!slotsTomorrow) {
+        this.logger.warn(`[ScheduleText] No schedule found for ${regionKey}/${queueKey} on ${dateTomorrowStr}`);
+        return '<i>Не вдалося знайти графік на завтра.</i>';
+      }
+
+      const scheduleLines: string[] = [];
+      // "Завтра" - це завжди "майбутнє", тому префікс один для всіх
+      const prefixEmoji = '🔜'; 
+
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          
+          const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+          const slotStatus: LightStatus = slotsTomorrow[timeStr] ?? LightStatus.UNKNOWN;
+          
+          let statusEmoji: string;
+
+          if (slotStatus === LightStatus.ON) {
+            statusEmoji = EMOJ_BULB; // 💡
+          } else if (slotStatus === LightStatus.OFF) {
+            statusEmoji = EMOJ_MOON; // 🌚
+          } else {
+            statusEmoji = EMOJ_GRAY_Q; // ❔
+          }
+          
+          // Форматуємо рядок: 🔜 00:00: 💡
+          scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
+        }
+      }
+      
+      // Використовуємо той самий компресор
+      return this.compressScheduleText(scheduleLines);
+
+    } catch (error) {
+      this.logger.error(`[ScheduleText] Error building tomorrow schedule string: ${error}`);
+      return '<i>Помилка при обробці графіка на завтра.</i>';
+    }
   }
   
   /**
