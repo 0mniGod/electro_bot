@@ -35,6 +35,8 @@ import {
   RESP_ENABLED_DETAILED,
   RESP_DISABLED_SUSPICIOUS,
   RESP_DISABLED_DETAILED,
+  EXPECTED_DISABLE_MOMENT,
+  EXPECTED_ENABLE_MOMENT
 } from '@electrobot/bot';
 // import { ElectricityRepository } from './electricity.repository'; // <--- ВИДАЛЕНО
 
@@ -77,6 +79,8 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     // --- ВИДАЛЕНО ElectricityRepository ---
     //private readonly placeRepository: PlaceRepository,
     private readonly httpService: HttpService,
+    @Inject(forwardRef(() => ScheduleCacheService)) 
+    private readonly scheduleCacheService: ScheduleCacheService,
     @Inject(forwardRef(() => NotificationBotService))
     private readonly notificationBotService: NotificationBotService,
   ) {
@@ -416,8 +420,9 @@ public async refreshInternalCache(): Promise<void> {
     }
   }
 
-  /**
-   * ОНОВЛЕНИЙ: Зберігає стан в кеш/історію в пам'яті, А НЕ В БД.
+/**
+   * ОНОВЛЕНИЙ: Зберігає стан, генерує "розумні" сповіщення
+   * і викликає NotificationBotService для відправки.
    */
   private async handleAvailabilityChange(params: {
     readonly place: Place;
@@ -431,27 +436,20 @@ public async refreshInternalCache(): Promise<void> {
     this.logger.log(`Handling availability change for ${place.name}: ${currentAvailability ? 'AVAILABLE' : 'UNAVAILABLE'}`);
 
     try {
-      // --- ЛОГІКУ ПЕРЕВІРКИ БД ВИДАЛЕНО ---
-      
+      // --- 1. Логіка збереження в пам'ять (як і раніше) ---
       this.logger.log(`[In-Memory] Saving new state to memory: ${currentAvailability}`);
-      
-      // 1. Оновлюємо останній відомий стан
       this.lastKnownStatus[place.id] = currentAvailability;
       this.logger.log(`[Cache] Updated lastKnownStatus for ${place.id} to ${currentAvailability}`);
-
-      // 2. Додаємо в історію в пам'яті
       this.history.push({
         placeId: place.id,
-        time: new Date(), // Поточний час
+        time: new Date(),
         is_available: currentAvailability,
       });
-
-      // 3. Очищуємо стару історію
       this.pruneHistory();
       
-      // 4. Надсилаємо сповіщення
       this.logger.log(`Triggering notification for place ${place.id}`);
       
+      // --- 2. Логіка генерації сповіщення (з новими правилами) ---
       try {
         const [latest, previous] = await this.getLatestPlaceAvailability({
             placeId: place.id,
@@ -463,20 +461,70 @@ public async refreshInternalCache(): Promise<void> {
           return;
         }
 
+        // --- 3. Отримуємо графік (Hardcoded) ---
         let scheduleEnableMoment: Date | undefined;
         let schedulePossibleEnableMoment: Date | undefined;
         let scheduleDisableMoment: Date | undefined;
         let schedulePossibleDisableMoment: Date | undefined;
-        // --- ---------------------------------------------------- ---
+        let scheduleContextMessage = ''; // <--- Наша нова змінна
+        const nowKyiv = convertToTimeZone(new Date(), { timeZone: place.timezone }); // Використовуємо timezone місця
 
+        const PLACE_ID_TO_SCHEDULE = "001"; 
+        const REGION_KEY = "kyiv";
+        const QUEUE_KEY = "2.1"; 
+
+        if (place.id === PLACE_ID_TO_SCHEDULE) {
+          try {
+              // --- 3a. Отримуємо прогноз з кешу ---
+              const prediction = this.scheduleCacheService.getSchedulePrediction(REGION_KEY, QUEUE_KEY);
+              scheduleEnableMoment = prediction.scheduleEnableMoment;
+              schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
+              scheduleDisableMoment = prediction.scheduleDisableMoment;
+              schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+
+              // --- 3b. АНАЛІЗ ДЛЯ КОНТЕКСТУ ---
+              if (!latest.is_available) {
+                // --- СВІТЛО ВИМКНУЛИ ---
+                const nextOff = prediction.scheduleDisableMoment || prediction.schedulePossibleDisableMoment;
+                if (nextOff) {
+                  const diffInMinutes = differenceInMinutes(nextOff, nowKyiv); // >0 = вимкнули *до* часу
+                  if (diffInMinutes >= -30 && diffInMinutes <= 30) {
+                    scheduleContextMessage = 'ℹ️ Вимкнення відбулося за графіком.';
+                  } else if (diffInMinutes > 30 && diffInMinutes <= 120) {
+                    scheduleContextMessage = '🤬 Вимкнули раніше графіка. Клята русня!';
+                  } else if (diffInMinutes > 120) {
+                    scheduleContextMessage = '🚨 Схоже, це екстрене відключення (вимкнули >2 годин до графіка). Клята русня!';
+                  }
+                }
+              } else {
+                // --- СВІТЛО ВВІМКНУЛИ ---
+                const nextOn = prediction.scheduleEnableMoment || prediction.schedulePossibleEnableMoment;
+                if (nextOn) {
+                  const diffInMinutes = differenceInMinutes(nextOn, nowKyiv); // >0 = ввімкнули *до* часу
+                  if (diffInMinutes > 120) {
+                    scheduleContextMessage = '🙏💡 Світло дали БІЛЬШЕ НІЖ НА 2 ГОДИНИ раніше графіка! Слава Богу та Енергетикам!';
+                  } else if (diffInMinutes > 30) {
+                    scheduleContextMessage = '💡 Світло дали раніше графіка! Слава Енергетикам!';
+                  } else if (diffInMinutes >= -30 && diffInMinutes <= 30) {
+                    scheduleContextMessage = 'ℹ️ Увімкнення відбулося за графіком.';
+                  }
+                }
+              }
+          } catch (scheduleError) {
+               this.logger.error(`[Schedule] Failed to get prediction for notification: ${scheduleError}`);
+          }
+        }
+        // --- ------------------------- ---
+
+        // --- 4. Формуємо саме повідомлення ---
         const latestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
         const when = format(latestTime, 'HH:mm dd.MM', { locale: uk });
         let response: string;
 
         if (!previous) {
           response = latest.is_available
-            ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment })
-            : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment });
+            ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage })
+            : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage });
         } else {
           const previousTime = convertToTimeZone(previous.time, { timeZone: place.timezone });
           const howLong = formatDistance(latestTime, previousTime, { locale: uk, includeSeconds: false });
@@ -485,26 +533,25 @@ public async refreshInternalCache(): Promise<void> {
           if (latest.is_available) {
             response =
               diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-                ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name })
-                : RESP_ENABLED_DETAILED({ when, howLong, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment });
+                ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage })
+                : RESP_ENABLED_DETAILED({ when, howLong, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage });
           } else {
             response =
               diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-                ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name })
-                : RESP_DISABLED_DETAILED({ when, howLong, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment });
+                ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage })
+                : RESP_DISABLED_DETAILED({ when, howLong, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage });
           }
         }
         
         this.logger.log(`[Notify] Prepared message for ${place.id}: "${response.substring(0, 50)}..."`);
         
-        // Викликаємо оновлений метод
+        // 5. Викликаємо NotificationBotService
         await this.notificationBotService.sendBulkNotificationsToPlace(place.id, response);
 
       } catch (notifyError) {
           this.logger.error(`[Notify] Error during notification generation for ${place.id}: ${notifyError}`);
       }
-      // --- КІНЕЦЬ НОВОГО БЛОКУ ---
-
+      
     } catch (error) {
       this.logger.error(`Error in handleAvailabilityChange for ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
     }
