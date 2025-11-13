@@ -11,7 +11,8 @@ import {
   EMOJ_BULB,         
   EMOJ_MOON,         
   EMOJ_CHECK_MARK,   
-  EMOJ_GRAY_Q,       
+  EMOJ_GRAY_Q,  
+  EMOJ_GREEN_CIRCLE,
   EMOJ_HOURGLASS,    
 } from '@electrobot/bot';
 
@@ -308,7 +309,7 @@ constructor(
           const isCurrent = hour === currentHour && ((minute === 0 && currentMinute < 30) || (minute === 30 && currentMinute >= 30));
           
           if (isCurrent) {
-            prefixEmoji = '🔘'; // Поточний
+            prefixEmoji = '✅'; // Поточний
           } else if (isPast) {
             prefixEmoji = '🔙'; // Минулий
           } else {
