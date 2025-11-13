@@ -68,10 +68,12 @@ const HARDCODED_PLACE: Place = {
 };
 
 const HARDCODED_BOT: Bot = {
+    id: "bot_001", 
     placeId: "001",
-    token: process.env.BOT_TOKEN_001, // <--- Переконайтесь, що ця змінна є на Koyeb!
+    token: process.env.BOT_TOKEN, 
     botName: "OmniLightBot",
-    isEnabled: true
+    isEnabled: true,
+    isPublicallyListed: false
 };
 // --- ------------------------------------ ---
 
