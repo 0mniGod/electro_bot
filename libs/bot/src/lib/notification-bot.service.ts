@@ -279,16 +279,26 @@ constructor(
         await botEntry.telegramBot.sendMessage(chatId, escapedMessage, { parse_mode: parseMode });
         successCount++;
       } catch (e: any) {
+        
+        // --- ПОЧАТОК ЗМІНЕНОГО БЛОКУ CATCH ---
         const errorCode = e?.response?.body?.error_code;
         const errorDesc = e?.response?.body?.description || e?.message || JSON.stringify(e);
 
-        if (errorCode === 403 && (/* ... */)) {
+        // Повертаємо реальну умову (замість "/* ... */")
+        if (
+          errorCode === 403 && 
+          (errorDesc.includes('blocked by the user') || errorDesc.includes('user is deactivated'))
+        ) {
+          // Використовуємо 'placeId' (з параметрів функції), а не 'place.id'
           this.logger.log(`User ${chatId} blocked bot for place ${placeId}. Removing subscription from Cache.`);
           blockedCount++;
-          // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
-          // Видаляємо з кешу
-          const index = this.subscriberCache[placeId].indexOf(chatId);
-          if (index > -1) this.subscriberCache[placeId].splice(index, 1);
+          try {
+            // Видаляємо з кешу
+            const index = this.subscriberCache[placeId].indexOf(chatId); // <--- ВИПРАВЛЕНО
+            if (index > -1) this.subscriberCache[placeId].splice(index, 1); // <--- ВИПРАВЛЕНО
+          } catch (removeError) {
+             this.logger.error(`Failed to remove blocked user ${chatId} from cache for place ${placeId}: ${removeError}`);
+          }
         } else {
           errorCount++;
           this.logger.warn(`Failed to send notification to chat ${chatId} (place ${placeId}). Code: ${errorCode}. Desc: ${errorDesc}`);
