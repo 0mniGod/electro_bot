@@ -282,11 +282,8 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
       const scheduleLines: string[] = [];
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
       
-      // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
-      const currentHour = nowKyiv.getHours();
-      const currentMinute = nowKyiv.getMinutes();
-      const currentTotalMinutes = currentHour * 60 + currentMinute;
-      // --- --------------------------------- ---
+      // Поточний час у хвилинах від початку дня (напр. 10:35 = 635)
+      const currentTotalMinutes = nowKyiv.getHours() * 60 + nowKyiv.getMinutes();
 
       for (let hour = 0; hour < 24; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
@@ -310,7 +307,7 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
           
           // isCurrent: Поточний час знаходиться В ЦЬОМУ 30-хв слоті
           const isCurrent = currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes < (slotTotalMinutes + 30);
-          // isPast: Початок слота вже минув
+          // isPast: Початок слота ВЖЕ МИНУВ
           const isPast = slotTotalMinutes < currentTotalMinutes;
           // --- --------------------------------- ---
 
@@ -322,10 +319,12 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
             prefixEmoji = '🔜';
           }
 
+          // Форматуємо: [Префікс] [Час]: [Статус]
           scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
         }
       }
       
+      // Об'єднуємо сусідні однакові слоти
       return this.compressScheduleText(scheduleLines);
 
     } catch (error) {
@@ -357,27 +356,20 @@ private compressScheduleText(lines: string[]): string {
 
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v7) !!! ---
-          // Ми дивимось ТІЛЬКИ на статус (світло/темрява)
           const startStatus = startParts[2]; // 💡
           const currentStatus = currentParts[2]; // 💡
-          // --- --------------------------------- ---
 
-          // Якщо статус змінився...
+          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v8) !!! ---
+          // Якщо СТАТУС змінився, ми завершуємо групу
           if (startStatus !== currentStatus) {
               
-              // 1. Беремо префікс (🔙) та час (00:00) з ПОЧАТКОВОГО рядка
-              const startPrefix = startParts[0]; 
-              const startTime = startParts[1].slice(0, -1);
+              const startPrefix = startParts[0]; // 🔙
+              const startTime = startParts[1].slice(0, -1); // "00:00"
+              const endTime = currentParts[1].slice(0, -1); // "03:30"
               
-              // 2. Беремо час кінця (це час початку ПОТОЧНОГО рядка)
-              const endTime = currentParts[1].slice(0, -1);
-              
-              // 3. Форматуємо: 🔙 00:00 - 03:30 💡
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
-              
-              // 4. Починаємо новий блок
-              startLine = currentLine;
+              startLine = currentLine; // Починаємо нову групу
+
           } else {
               // Якщо статус той самий (💡 === 💡), АЛЕ поточний рядок "поточний" (🟢)
               // нам потрібно оновити startLine, щоб префікс був 🟢.
@@ -386,6 +378,7 @@ private compressScheduleText(lines: string[]): string {
                   startLine = currentLine;
               }
           }
+          // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
       }
       
       // Додаємо останній блок
@@ -399,6 +392,80 @@ private compressScheduleText(lines: string[]): string {
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
+  }
+
+  /**
+   * (НОВИЙ МЕТОД)
+   * Знаходить час ОСТАННЬОЇ *запланованої* зміни статусу до поточного часу.
+   */
+  public findLastScheduledChange(
+    now: Date,
+    regionKey: string,
+    queueKey: string
+  ): { time: Date | null, status: LightStatus } {
+    
+    if (!this.scheduleCache) {
+      this.logger.warn('[FindLastChange] Schedule cache is empty.');
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
+
+    try {
+      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+      const schedule = region?.schedule[queueKey];
+      const dateTodayStr = this.scheduleCache.date_today;
+      const slotsToday = schedule ? schedule[dateTodayStr] : null;
+
+      if (!slotsToday) {
+        this.logger.warn(`[FindLastChange] No schedule found for ${regionKey}/${queueKey} on ${dateTodayStr}`);
+        return { time: null, status: LightStatus.UNKNOWN };
+      }
+
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTotalMinutes = currentHour * 60 + currentMinute;
+      
+      let lastChangeTime: Date | null = null;
+      let lastChangeStatus: LightStatus = LightStatus.UNKNOWN;
+      let previousStatus: LightStatus = LightStatus.UNKNOWN; // Статус на 00:00
+
+      // Проходимо з 00:00 до поточного часу
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          
+          const slotTotalMinutes = hour * 60 + minute;
+          
+          // Якщо слот вже в майбутньому, зупиняємось
+          if (slotTotalMinutes > currentTotalMinutes) {
+             break;
+          }
+
+          const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+          const currentStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
+
+          // Якщо це перший слот, встановлюємо початковий стан
+          if (hour === 0 && minute === 0) {
+              previousStatus = currentStatus;
+              continue;
+          }
+          
+          // Якщо статус змінився
+          if (currentStatus !== previousStatus) {
+            const slotDate = new Date(`${dateTodayStr}T${timeStr}:00.000Z`);
+            lastChangeTime = convertToTimeZone(slotDate, { timeZone: TZ_KYIV });
+            lastChangeStatus = currentStatus;
+          }
+          
+          previousStatus = currentStatus;
+        }
+      }
+      
+      // Повертаємо час і статус останньої *зміни*
+      return { time: lastChangeTime, status: lastChangeStatus };
+
+    } catch (error) {
+      this.logger.error(`[FindLastChange] Error finding last change: ${error}`);
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
   }
   
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
