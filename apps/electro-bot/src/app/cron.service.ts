@@ -19,10 +19,10 @@ export class CronService {
   // }
 
   // 10:00 every first day of the month
-  @Cron('0 0 10 1 * *')
-  public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
-    this.logger.verbose('Notifying all places about previous month stats');
+  // @Cron('0 0 10 1 * *')
+  // public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
+  //   this.logger.verbose('Notifying all places about previous month stats');
 
-    await this.notificationBotService.notifyAllPlacesAboutPreviousMonthStats();
-  }
+  //   await this.notificationBotService.notifyAllPlacesAboutPreviousMonthStats();
+  // }
 }
