@@ -1371,7 +1371,6 @@ telegramBot.onText(/\/update/, async (msg) => {
               const success = await this.scheduleCacheService.fetchAndCacheSchedules();
 
               if (success) {
-                  // --- 2. ЯКЩО УСПІШНО - ВІДРАЗУ ГЕНЕРУЄМО ГРАФІК ---
                   this.logger.log(`[ScheduleCommand] Fetch successful. Generating schedule text for chat ${chatId}.`);
                   
                   // Використовуємо ті самі хардкод-ключі, що й для /current
@@ -1379,27 +1378,36 @@ telegramBot.onText(/\/update/, async (msg) => {
                   const REGION_KEY = "kyiv";
                   const QUEUE_KEY = "2.1"; // <--- Або ваша група
                   
-                  let scheduleString = "<i>Графік не знайдено (місце не 001).</i>"; // Заглушка
+                  let scheduleTodayString = "<i>Графік на сьогодні не знайдено.</i>";
+                  let scheduleTomorrowString = "<i>Графік на завтра не знайдено.</i>"; // <-- Нова змінна
 
                   if (place.id === PLACE_ID_TO_SCHEDULE) {
                       try {
-                          scheduleString = this.scheduleCacheService.getTodaysScheduleAsText(
+                          // Отримуємо графік на сьогодні
+                          scheduleTodayString = this.scheduleCacheService.getTodaysScheduleAsText(
+                              REGION_KEY,
+                              QUEUE_KEY
+                          );
+                          // Отримуємо графік на завтра
+                          scheduleTomorrowString = this.scheduleCacheService.getTomorrowsScheduleAsText(
                               REGION_KEY,
                               QUEUE_KEY
                           );
                       } catch (e) {
                           this.logger.error(`[ScheduleCommand] Error generating schedule text: ${e}`);
-                          scheduleString = "<i>Помилка при генерації графіка.</i>";
+                          scheduleTodayString = "<i>Помилка при генерації графіка.</i>";
+                          scheduleTomorrowString = "<i>Помилка при генерації графіка.</i>";
                       }
                   }
                   
-                  // 3. Створюємо фінальне повідомлення
+                  // 3. Створюємо фінальне повідомлення з обома графіками
                   const responseMessage = `✅ Графіки успішно оновлено.\n\n` +
                                         `<b>--- Графік на сьогодні ---</b>\n` +
-                                        `${scheduleString}`; // Використовуємо хелпер з messages.constant
+                                        `${scheduleTodayString}\n\n` +
+                                        `<b>--- Графік на завтра ---</b>\n` +
+                                        `${scheduleTomorrowString}`;
 
                   await telegramBot.sendMessage(chatId, responseMessage, { parse_mode: 'HTML' });
-                  // --- -------------------------------------------- ---
                   
                   this.logger.log(`/schedule command processed successfully for place ${place.id}`);
               } else {
