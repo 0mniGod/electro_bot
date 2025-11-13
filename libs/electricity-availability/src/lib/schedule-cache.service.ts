@@ -73,7 +73,6 @@ export class ScheduleCacheService implements OnModuleInit {
   private isFetching = false;
   private lastNotifiedScheduleJSON: string | null = null; 
   private notifiedTomorrowDates = new Set<string>();
-  private isFetching = false;
 
 constructor(
     private readonly httpService: HttpService,
