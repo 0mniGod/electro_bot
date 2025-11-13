@@ -1102,6 +1102,7 @@ private async notifyAllPlaceSubscribers(params: {
 
 /**
    * ОНОВЛЕНИЙ: Цей метод тепер просто читає хардкод
+   * І НАПОВНЮЄ КЕШ ПІДПИСНИКІВ
    */
   private async refreshAllPlacesAndBots(): Promise<void> {
     this.logger.log('>>> ENTERING refreshAllPlacesAndBots()');
@@ -1192,17 +1193,26 @@ private async notifyAllPlaceSubscribers(params: {
 
       this.placeBots = newPlaceBots;
 
-      // --- !!! ВАЖЛИВО !!! ---
-      // (Ініціалізуємо кеш підписників, ЯКЩО ВІН ПОРОЖНІЙ)
+      // --- !!! ВАЖЛИВО: ОНОВЛЕННЯ КЕШУ ПІДПИСНИКІВ !!! ---
       if (Object.keys(this.subscriberCache).length === 0) {
           this.logger.warn('[Cache] Subscriber cache is empty (likely due to restart). Initializing empty cache.');
+          
+          // --- КРОК 2: ДОДАЄМО ВАШ ID В КЕШ ---
+          const YOUR_TELEGRAM_CHAT_ID = 123456789; // <--- ЗАМІНІТЬ 123456789 НА ВАШ ID
+          // --- ----------------------------- ---
+
           for (const placeId of activePlaceIds) {
-              this.subscriberCache[placeId] = [];
+              if (placeId === HARDCODED_PLACE.id) {
+                 this.subscriberCache[placeId] = [YOUR_TELEGRAM_CHAT_ID]; // Додаємо вас
+                 this.logger.log(`[Cache] Hardcoded admin ${YOUR_TELEGRAM_CHAT_ID} to cache for place ${placeId}.`);
+              } else {
+                 this.subscriberCache[placeId] = [];
+              }
           }
       } else {
           this.logger.log('[Cache] Subscriber cache already exists in memory. Retaining.');
       }
-      // --- ---------------- ---
+      // --- -------------------------------------------- ---
 
       this.logger.log(`Finished processing bots configurations. Active instances: ${Object.keys(this.placeBots).length}`);
     } catch (e) {
