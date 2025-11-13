@@ -60,7 +60,7 @@ const HARDCODED_PLACE: Place = {
     name: "дома",
     checkType: 'ping',
     host: "176.100.14.52", 
-    timezone: "Europe/Kyiv",
+    timezone: "Europe/Kiev",
     isDisabled: false,
     disableMonthlyStats: false,
     scheduleRegionKey: "kyiv", 
