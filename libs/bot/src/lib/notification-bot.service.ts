@@ -1291,14 +1291,14 @@ telegramBot.onText(/\/update/, async (msg) => {
           this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
 
           // // Опціонально: Перевірка прав адміністратора
-          const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
-          if (!ADMIN_USER_ID || String(userId) !== ADMIN_USER_ID) {
-              this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
-              try {
-                  await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
-              } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
-              return;
-          }
+          const ADMIN_USER_ID = "229951457";
+        if (String(userId) !== ADMIN_USER_ID) { // <--- ПРИБЕРІТЬ ПЕРЕВІРКУ !ADMIN_USER_ID
+        this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
+        try {
+            await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
+        } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
+        return;
+    }
           // Виконуємо оновлення
           try {
               // --- ЗМІНЕНО ТЕКСТ ---
