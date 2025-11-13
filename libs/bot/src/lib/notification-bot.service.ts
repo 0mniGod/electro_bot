@@ -1,8 +1,10 @@
 import {
   ElectricityAvailabilityService,
+  ScheduleCacheService
   // KyivElectricstatusScheduleService, // Закоментовано імпорт
 } from '@electrobot/electricity-availability';
 import { UserRepository } from '@electrobot/user-repo';
+import { Cron } from '@nestjs/schedule';
 // Додаємо OnModuleInit до імпортів з @nestjs/common
 import { Injectable, Logger, OnModuleInit, forwardRef, Inject } from '@nestjs/common';
 import {
@@ -64,6 +66,8 @@ export class NotificationBotService implements OnModuleInit {
   > = {};
   private isRefreshingPlacesAndBots = false;
 
+  private subscriberCache: Record<string, number[]> = {};
+  
 constructor(
   @Inject(forwardRef(() => ElectricityAvailabilityService)) // <-- ВИПРАВЛЕНО
   private readonly electricityAvailabilityService: ElectricityAvailabilityService,
@@ -387,11 +391,6 @@ constructor(
           includeSeconds: false,
         });
 
-        let scheduleEnableMoment: Date | undefined;
-        let schedulePossibleEnableMoment: Date | undefined;
-        let scheduleDisableMoment: Date | undefined;
-        let schedulePossibleDisableMoment: Date | undefined;
-
       let scheduleEnableMoment: Date | undefined;
       let schedulePossibleEnableMoment: Date | undefined;
       let scheduleDisableMoment: Date | undefined;
@@ -488,6 +487,24 @@ constructor(
         await telegramBot.sendMessage(msg.chat.id, response, {
           parse_mode: 'HTML',
         });
+       
+      // --- БЛОК ОНОВЛЕННЯ КЕШУ ---
+      if (added) {
+         const chatIdNum = Number(msg.chat.id); 
+         if (!isNaN(chatIdNum)) {
+             if (!this.subscriberCache[place.id]) {
+                 this.subscriberCache[place.id] = [];
+             }
+             if (!this.subscriberCache[place.id].includes(chatIdNum)) {
+                 this.subscriberCache[place.id].push(chatIdNum);
+                 this.logger.log(`[Cache] Added chat ${chatIdNum} to subscriber cache for place ${place.id}`);
+             }
+         } else {
+             this.logger.warn(`[Cache] Invalid chat ID ${msg.chat.id} during subscribe.`);
+         }
+      }
+      // --- КІНЕЦЬ БЛОК ОНОВЛЕННЯ КЕШУ ---
+       
         this.logger.log(`Sent /subscribe response (added=${added}) to chat ${msg.chat.id}`); // Лог відправки
      } catch (error) {
         this.logger.error(`Error in handleSubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
@@ -528,7 +545,21 @@ constructor(
         await telegramBot.sendMessage(msg.chat.id, response, {
           parse_mode: 'HTML',
         });
-        this.logger.log(`Sent /unsubscribe response (removed=${removed}) to chat ${msg.chat.id}`); // Лог відправки
+       
+      // --- БЛОК ОНОВЛЕННЯ КЕШУ ---
+      if (removed) {
+          const chatIdNum = Number(msg.chat.id);
+          if (!isNaN(chatIdNum) && this.subscriberCache[place.id]) {
+              const index = this.subscriberCache[place.id].indexOf(chatIdNum);
+              if (index > -1) {
+                  this.subscriberCache[place.id].splice(index, 1);
+                  this.logger.log(`[Cache] Removed chat ${chatIdNum} from subscriber cache for place ${place.id}`);
+              }
+          }
+      }
+      // --- КІНЕЦЬ БЛОК ОНОВЛЕННЯ КЕШУ  ---
+       
+       this.logger.log(`Sent /unsubscribe response (removed=${removed}) to chat ${msg.chat.id}`); // Лог відправки
      } catch (error) {
         this.logger.error(`Error in handleUnsubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
      }
@@ -917,11 +948,6 @@ constructor(
       let scheduleDisableMoment: Date | undefined;
       let schedulePossibleDisableMoment: Date | undefined;
 
-let scheduleEnableMoment: Date | undefined;
-      let schedulePossibleEnableMoment: Date | undefined;
-      let scheduleDisableMoment: Date | undefined;
-      let schedulePossibleDisableMoment: Date | undefined;
-
       // --- Жорстко вказуємо наші ключі ---
       const PLACE_ID_TO_SCHEDULE = "001"; // ID вашого місця
       const REGION_KEY = "kyiv";
@@ -1253,7 +1279,35 @@ let scheduleEnableMoment: Date | undefined;
 
       this.placeBots = newPlaceBots; // Оновлюємо кеш ботів тільки активними/оновленими інстансами
       this.logger.log(`Finished processing bots configurations. Active instances in this.placeBots: ${Object.keys(this.placeBots).length}`);
-
+      
+      // --- БЛОК ДЛЯ ОНОВЛЕННЯ КЕШУ ПІДПИСНИКІВ ---
+      this.logger.log('[Cache] Refreshing subscriber cache...');
+      const newSubscriberCache: Record<string, number[]> = {};
+      
+      // Ітеруємо по АКТУАЛЬНИХ місцях (loadedPlaces)
+      for (const place of loadedPlaces) {
+           // Перевіряємо, чи є для цього місця активний бот
+           if (activePlaceIds.has(place.id)) {
+               try {
+                   // Запит до БД за підписниками ТІЛЬКИ для активних місць
+                   const subscribers = await this.userRepository.getAllPlaceUserSubscriptions({ placeId: place.id });
+                   // Зберігаємо тільки валідні числові chatId
+                   newSubscriberCache[place.id] = subscribers
+                       .map(sub => Number(sub.chatId))
+                       .filter(id => !isNaN(id));
+                   this.logger.log(`[Cache] Loaded ${newSubscriberCache[place.id]?.length || 0} subscribers for active place ${place.id}`);
+               } catch (error) {
+                   this.logger.error(`[Cache] Failed to load subscribers for place ${place.id}: ${error}`);
+                   newSubscriberCache[place.id] = []; // Порожній масив у разі помилки
+               }
+           } else {
+                this.logger.debug(`[Cache] Skipping subscriber load for inactive/disabled place ${place.id}`);
+           }
+      }
+      this.subscriberCache = newSubscriberCache; // Повністю замінюємо старий кеш новим
+      this.logger.log(`[Cache] Subscriber cache refreshed for ${Object.keys(this.subscriberCache).length} active places.`);
+      // --- КІНЕЦЬ БЛОКУ ОНОВЛЕННЯ КЕШУ ПІДПИСНИКІВ ---
+      
     } catch (e) {
       this.logger.error(`>>> ERROR inside refreshAllPlacesAndBots during DB fetch or processing: ${e}`, e instanceof Error ? e.stack : undefined);
     } finally {
