@@ -2,8 +2,8 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
-import { dt as dt_util } from 'homeassistant-util-dt'; // (Потрібно імітувати)
-import { addMinutes, differenceInMinutes, format, startOfHalfHour } from 'date-fns';
+//import { dt as dt_util } from 'homeassistant-util-dt'; // (Потрібно імітувати)
+import { addMinutes, differenceInMinutes, format, startOfHour } from 'date-fns';
 import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 
