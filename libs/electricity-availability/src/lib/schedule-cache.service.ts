@@ -346,42 +346,47 @@ private compressScheduleText(lines: string[]): string {
       if (lines.length === 0) return '';
       
       const compressed: string[] = [];
+      // Починаємо з першого рядка
       let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
       
       for (let i = 1; i < lines.length; i++) {
-          const currentLine = lines[i];
+          const currentLine = lines[i]; // Наступний рядок
           
           const startParts = startLine.split(' '); 
           const currentParts = currentLine.split(' ');
 
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
+          const startPrefix = startParts[0]; // 🔙
           const startStatus = startParts[2]; // 💡
+          const currentPrefix = currentParts[0]; // 🔙 (або 🟢)
           const currentStatus = currentParts[2]; // 💡
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v8) !!! ---
-          // Якщо СТАТУС змінився, ми завершуємо групу
-          if (startStatus !== currentStatus) {
+          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v9) !!! ---
+          // Ми завершуємо блок, ЯКЩО:
+          // 1. Змінився СТАТУС (💡 -> 🌚)
+          // АБО
+          // 2. Змінився ПРЕФІКС (🔙 -> 🟢)
+          if (startStatus !== currentStatus || startPrefix !== currentPrefix) {
               
-              const startPrefix = startParts[0]; // 🔙
+              // 1. Беремо префікс (🔙) та час (00:00) з ПОЧАТКОВОГО рядка
               const startTime = startParts[1].slice(0, -1); // "00:00"
+              
+              // 2. Беремо час кінця (це час початку ПОТОЧНОГО рядка)
               const endTime = currentParts[1].slice(0, -1); // "03:30"
               
+              // 3. Форматуємо: 🔙 00:00 - 03:30 💡
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
-              startLine = currentLine; // Починаємо нову групу
-
-          } else {
-              // Якщо статус той самий (💡 === 💡), АЛЕ поточний рядок "поточний" (🟢)
-              // нам потрібно оновити startLine, щоб префікс був 🟢.
-              const currentPrefix = currentParts[0];
-              if (currentPrefix === EMOJ_GREEN_CIRCLE) {
-                  startLine = currentLine;
-              }
+              
+              // 4. Починаємо новий блок
+              startLine = currentLine;
           }
+          // Якщо статус І префікс однакові (напр. "🔙 ... 💡" і "🔙 ... 💡"), 
+          // ми нічого не робимо, продовжуємо групувати.
           // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
       }
       
-      // Додаємо останній блок
+      // Додаємо останній блок (від останньої зміни до кінця дня 00:00)
       const lastParts = startLine.split(' ');
       if (lastParts.length < 3) return compressed.join('\n'); 
 
@@ -389,6 +394,7 @@ private compressScheduleText(lines: string[]): string {
       const lastStatus = lastParts[2];
       const lastStartTime = lastParts[1].slice(0, -1); 
 
+      // Форматуємо: 🟢 21:30 - 00:00 🌚
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
