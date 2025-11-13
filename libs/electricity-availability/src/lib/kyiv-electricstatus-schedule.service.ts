@@ -55,7 +55,7 @@ export class KyivElectricstatusScheduleService {
 
     const nowOnServer = new Date();
     const tomorrowOnServer = addDays(nowOnServer, 1);
-    const kyivHours = nowOnServer.toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hour12: false });
+    const kyivHours = nowOnServer.toLocaleString('uk-UA', { timeZone: 'Europe/Kiev', hour: '2-digit', minute: '2-digit', hour12: false });
     const now = this.scheduleMomentToDate({ moment: kyivHours, baseDate: nowOnServer });
     const tomorrow = addDays(now, 1);
     const severalMinutesAgo = addMinutes(now, -SCHEDULE_INACCURACY_MINUTES);
@@ -148,7 +148,7 @@ export class KyivElectricstatusScheduleService {
 
     const nowOnServer = new Date();
     const tomorrowOnServer = addDays(nowOnServer, 1);
-    const kyivHours = nowOnServer.toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hour12: false });
+    const kyivHours = nowOnServer.toLocaleString('uk-UA', { timeZone: 'Europe/Kiev', hour: '2-digit', minute: '2-digit', hour12: false });
     const now = this.scheduleMomentToDate({ moment: kyivHours, baseDate: nowOnServer });
     const tomorrow = addDays(now, 1);
     const severalMinutesAgo = addMinutes(now, -SCHEDULE_INACCURACY_MINUTES);
