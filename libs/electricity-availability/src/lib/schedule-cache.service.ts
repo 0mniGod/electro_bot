@@ -260,9 +260,9 @@ constructor(
 
 /**
    * (КРОК 2)
-   * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО)
+   * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО v2)
    */
-public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
+  public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
       return '<i>Графік на сьогодні ще не завантажено.</i>';
@@ -282,8 +282,11 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
       const scheduleLines: string[] = [];
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
       
-      // Поточний час у хвилинах від початку дня (напр. 10:35 = 635)
-      const currentTotalMinutes = nowKyiv.getHours() * 60 + nowKyiv.getMinutes();
+      // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
+      const currentHour = nowKyiv.getHours();
+      const currentMinute = nowKyiv.getMinutes();
+      const currentTotalMinutes = currentHour * 60 + currentMinute;
+      // --- --------------------------------- ---
 
       for (let hour = 0; hour < 24; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
@@ -324,7 +327,6 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
         }
       }
       
-      // Об'єднуємо сусідні однакові слоти
       return this.compressScheduleText(scheduleLines);
 
     } catch (error) {
@@ -333,62 +335,44 @@ public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
     }
   }
 
-  /**
-   * Допоміжний метод для об'єднання однакових слотів
-   */
 /**
-   * Допоміжний метод для об'єднання однакових слотів (ОНОВЛЕНО)
+   * Допоміжний метод для об'єднання однакових слотів (ВИПРАВЛЕНА ЛОГІКА v11)
    */
-/**
-   * Допоміжний метод для об'єднання однакових слотів (ВИПРАВЛЕНА ЛОГІКА v4)
-   */
-private compressScheduleText(lines: string[]): string {
+  private compressScheduleText(lines: string[]): string {
       if (lines.length === 0) return '';
       
       const compressed: string[] = [];
       let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
       
       for (let i = 1; i < lines.length; i++) {
-          const currentLine = lines[i]; // Приклад: "🔙 00:30: 💡"
+          const currentLine = lines[i];
           
-          // Розбиваємо рядки на частини: ["🔙", "00:00:", "💡"]
           const startParts = startLine.split(' '); 
           const currentParts = currentLine.split(' ');
-
           if (startParts.length < 3 || currentParts.length < 3) continue; 
 
-          const startPrefix = startParts[0]; // 🔙
           const startStatus = startParts[2]; // 💡
-          const currentPrefix = currentParts[0]; // 🔙 (або 🟢)
           const currentStatus = currentParts[2]; // 💡
+          const currentPrefix = currentParts[0]; // 🟢
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v7) !!! ---
-          // Якщо СТАТУС змінився (💡 -> 🌚), ми *завжди* завершуємо групу
+          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v11) !!! ---
+          // Якщо СТАТУС змінився (💡 -> 🌚), ми завершуємо групу
           if (startStatus !== currentStatus) {
               
-              // 1. Беремо префікс (🔙) та час (00:00) з ПОЧАТКОВОГО рядка
-              const startTime = startParts[1].slice(0, -1); // "00:00"
+              const startPrefix = startParts[0]; 
+              const startTime = startParts[1].slice(0, -1);
+              const endTime = currentParts[1].slice(0, -1); // Час початку поточного
               
-              // 2. Беремо час кінця (це час початку ПОТОЧНОГО рядка)
-              const endTime = currentParts[1].slice(0, -1); // "03:30"
-              
-              // 3. Форматуємо: 🔙 00:00 - 03:30 💡
               compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
-              
-              // 4. Починаємо новий блок
-              startLine = currentLine;
+              startLine = currentLine; // Починаємо нову групу
+
           } else {
-              // Статус той самий (напр. 🌚 === 🌚). 
-              // Тепер нам потрібно вирішити, який префікс (смайлик часу) використовувати.
-              // "Поточний" (✅/🟢) має найвищий пріоритет.
-              
-              if (currentPrefix === EMOJ_GREEN_CIRCLE && startPrefix !== EMOJ_GREEN_CIRCLE) {
-                  // Якщо ми знайшли "поточний" слот (✅), 
-                  // ми "просуваємо" його на всю групу, оновивши startLine.
-                  startLine = currentLine; 
-              } 
-              // (Якщо startPrefix вже ✅, він залишається. 
-              // Якщо обидва 🔙 або 🔜, неважливо, який з них)
+              // Статус той самий (🌚 === 🌚).
+              // Перевіряємо, чи не є ПОТОЧНИЙ рядок "поточним" (🟢).
+              if (currentPrefix === EMOJ_GREEN_CIRCLE) {
+                  // "Просуваємо" 🟢 на початок всієї групи
+                  startLine = `${EMOJ_GREEN_CIRCLE} ${startParts[1]} ${startStatus}`;
+              }
           }
           // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
       }
@@ -401,7 +385,6 @@ private compressScheduleText(lines: string[]): string {
       const lastStatus = lastParts[2];
       const lastStartTime = lastParts[1].slice(0, -1); 
 
-      // Форматуємо: ✅ 20:30 - 00:00 🌚
       compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
       
       return compressed.join('\n');
