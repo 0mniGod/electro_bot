@@ -46,6 +46,13 @@ export const RESP_START = (params: {
 export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
   `Нажаль, наразі інформація щодо наявності світла в ${params.place} відсутня.`;
 
+export const TODAYS_SCHEDULE = (params: {
+  readonly scheduleString?: string; 
+}) =>
+  params.scheduleString && params.scheduleString.length > 0
+    ? `\n\n<b>--- Графік на сьогодні ---</b>\n${params.scheduleString}` 
+    : '';
+
 export const TOMORROWS_SCHEDULE = (params: {
   readonly scheduleString?: string; // Повний графік на завтра
 }) =>
@@ -61,7 +68,7 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
   readonly tomorrowsSchedule?: string;
   readonly schedulePossibleDisableMoment?: Date;
   readonly todaysSchedule?: string;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string; 
 }) =>
   `${EMOJ_BULB} Наразі все добре - світло в ${params.place} є!\n\n` +
   `Включення відбулося ${params.when}.\n` +
@@ -70,8 +77,9 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` + 
   TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + 
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + 
   `\nСлава Україні!`;
 
 export const RESP_CURRENTLY_UNAVAILABLE = (params: {
@@ -82,7 +90,7 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
   readonly todaysSchedule?: string; 
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string; 
 }) =>
   `${EMOJ_MOON} Нажаль, наразі світла в ${params.place} нема.\n\n` +
   `Вимкнення відбулося ${params.when}.\n` +
@@ -91,8 +99,9 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
     scheduleEnableMoment: params.scheduleEnableMoment,
     schedulePossibleEnableMoment: params.schedulePossibleEnableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` + 
   TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + 
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + 
   `\n${MSG_DISABLED_REGULAR_SUFFIX}`;
 
 export const RESP_SUBSCRIPTION_CREATED = (params: { readonly place: string }) =>
