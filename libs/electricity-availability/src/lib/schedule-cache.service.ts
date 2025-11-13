@@ -2,11 +2,17 @@ import { HttpService } from '@nestjs/axios';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 //import { dt as dt_util } from 'homeassistant-util-dt'; // (Потрібно імітувати)
-import { addMinutes, differenceInMinutes, format, startOfHour } from 'date-fns';
+import { isBefore, isEqual, addMinutes, differenceInMinutes, format, startOfHour } from 'date-fns';
 import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { NotificationBotService } from '@electrobot/bot';
+import {
+  EMOJ_BULB,
+  EMOJ_MOON,
+  EMOJ_CHECK_MARK,
+  EMOJ_GRAY_Q,
+} from '@electrobot/bot/messages';
 
 // --- Імітація dt_util з Home Assistant ---
 // (Ми не можемо імпортувати 'homeassistant-util-dt', тому створимо свою версію)
@@ -250,6 +256,126 @@ constructor(
     }
   }
 
+public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
+    if (!this.scheduleCache) {
+      this.logger.warn('[ScheduleText] Schedule cache is empty.');
+      return '<i>Графік на сьогодні ще не завантажено.</i>';
+    }
+
+    try {
+      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+      const schedule = region?.schedule[queueKey];
+      const dateTodayStr = this.scheduleCache.date_today;
+      const slotsToday = schedule ? schedule[dateTodayStr] : null;
+
+      if (!slotsToday) {
+        this.logger.warn(`[ScheduleText] No schedule found for ${regionKey}/${queueKey} on ${dateTodayStr}`);
+        return '<i>Не вдалося знайти графік для вашої групи на сьогодні.</i>';
+      }
+
+      const scheduleLines: string[] = [];
+      const nowKyiv = dt_util_mock.now(TZ_KYIV);
+      const currentSlotTime = startOfHalfHour(nowKyiv); // Отримуємо поточний 30-хв слот
+
+      // Проходимо по всіх 48 слотах дня (00:00 ... 23:30)
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          
+          const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+          const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
+          
+          // Створюємо об'єкт Date для цього слота
+          const slotDate = new Date(`${dateTodayStr}T${timeStr}:00.000Z`);
+          // (Важливо: date-fns-timezone може бути потрібен для точного порівняння,
+          // але для простого порівняння часу слота (який вже в Kyiv time) з поточним часом Kyiv time
+          // ми можемо порівняти години і хвилини)
+          
+          const slotTimeInKyiv = new Date(nowKyiv);
+          slotTimeInKyiv.setHours(hour, minute, 0, 0);
+
+          let emoji: string;
+          let line: string;
+
+          // 1. Визначаємо, минулий це слот чи майбутній
+          if (isBefore(slotTimeInKyiv, currentSlotTime) || isEqual(slotTimeInKyiv, currentSlotTime)) {
+            // --- СЛОТ В МИНУЛОМУ АБО ПОТОЧНИЙ ---
+            emoji = EMOJ_CHECK_MARK; // ✅
+            
+            // Форматуємо: ✅ 08:00 - 08:30 (Світло є)
+            if (slotStatus === LightStatus.ON) {
+              line = `${emoji} ${timeStr}: ${EMOJ_BULB} (було)`;
+            } else if (slotStatus === LightStatus.OFF) {
+              line = `${emoji} ${timeStr}: ${EMOJ_MOON} (не було)`;
+            } else {
+              line = `${emoji} ${timeStr}: ${EMOJ_GRAY_Q} (можливо)`;
+            }
+            
+          } else {
+            // --- СЛОТ В МАЙБУТНЬОМУ ---
+            
+            // Форматуємо: ⏳ 18:00 - 18:30 (Світло буде)
+            if (slotStatus === LightStatus.ON) {
+              emoji = EMOJ_BULB; // 💡
+              line = `${emoji} ${timeStr}: (буде)`;
+            } else if (slotStatus === LightStatus.OFF) {
+              emoji = EMOJ_MOON; // 🌚
+              line = `${emoji} ${timeStr}: (не буде)`;
+            } else {
+              emoji = EMOJ_GRAY_Q; // ❔
+              line = `${emoji} ${timeStr}: (можливо)`;
+            }
+          }
+          scheduleLines.push(line);
+        }
+      }
+      
+      // Об'єднуємо сусідні однакові слоти для компактності
+      return this.compressScheduleText(scheduleLines);
+
+    } catch (error) {
+      this.logger.error(`[ScheduleText] Error building schedule string: ${error}`);
+      return '<i>Помилка при обробці графіка.</i>';
+    }
+  }
+
+  /**
+   * Допоміжний метод для об'єднання однакових слотів
+   */
+  private compressScheduleText(lines: string[]): string {
+      if (lines.length === 0) return '';
+      
+      const compressed: string[] = [];
+      let currentLine = lines[0];
+      let startTime = lines[0].split(' ')[1]; // Беремо час, напр. "00:00:"
+      
+      // Видаляємо двокрапку з часу
+      startTime = startTime.replace(':', ''); 
+
+      for (let i = 1; i < lines.length; i++) {
+          const nextLine = lines[i];
+          const currentStatus = currentLine.split('(')[1]; // (було)
+          const nextStatus = nextLine.split('(')[1]; // (буде)
+          
+          if (currentStatus === nextStatus) {
+              // Статуси однакові, продовжуємо групувати
+              continue; 
+          } else {
+              // Статус змінився, завершуємо поточний блок
+              const endTimeStr = nextLine.split(' ')[1].replace(':', ''); // Час початку *наступного* слота
+              compressed.push(`${currentLine.split(':')[0]}: ${startTime} - ${endTimeStr} ${currentStatus}`);
+              
+              // Починаємо новий блок
+              currentLine = nextLine;
+              startTime = endTimeStr;
+          }
+      }
+      
+      // Додаємо останній блок
+      compressed.push(`${currentLine.split(':')[0]}: ${startTime} - 00:00 ${currentLine.split('(')[1]}`);
+      
+      return compressed.join('\n');
+  }
+  
   /**
    * Допоміжний метод для пошуку наступного слоту
    */
