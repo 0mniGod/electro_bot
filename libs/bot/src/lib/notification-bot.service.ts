@@ -45,7 +45,7 @@ import {
   MSG_DISABLED,
 } from './messages.constant';
 
-const TZ_KYIV = 'Europe/Kyiv';
+const TZ_KYIV = 'Europe/Kiev';
 const dt_util_mock = {
   now: (timeZone: string) => convertToTimeZone(new Date(), { timeZone }),
 };
