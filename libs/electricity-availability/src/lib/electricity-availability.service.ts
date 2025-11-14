@@ -526,7 +526,8 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     } else {
       // diff = фактичне − опорне (в хвилинах)
       const localLatestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
-      const diffInMinutes = differenceInMinutes(localLatestTime, referenceTime);
+      const localReferenceTime = convertToTimeZone(referenceTime, { timeZone: place.timezone });
+      const diffInMinutes = differenceInMinutes(localLatestTime, localReferenceTime);
 
       // Загальна інтерпретація (уніфікована)
       // - diff > 30  => фактичне значно пізніше за опорне (затримка)
