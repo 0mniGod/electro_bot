@@ -485,6 +485,12 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
     const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
 
+    this.logger.warn(
+  `[DEBUG_CHECK] lastScheduledChange=${lastScheduled.time?.toISOString() ?? 'null'}, `
+  + `lastScheduledStatus=${lastScheduled.status}, `
+  + `realRestoreTime=${realRestoreTime.toISOString()}`
+);
+
     // Чи зараз за графіком має бути світло?
     const inScheduledLight = lastScheduled && lastScheduled.status === LightStatus.ON;
 
