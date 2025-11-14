@@ -391,129 +391,113 @@ constructor(
   }
 
 public findLastScheduledChange(
-  now: Date,
-  regionKey: string,
-  queueKey: string
+now: Date,
+regionKey: string,
+queueKey: string
 ): { time: Date | null, status: LightStatus } {
 
-  if (!this.scheduleCache) {
-    return { time: null, status: LightStatus.UNKNOWN };
-  }
+if (!this.scheduleCache) {
+return { time: null, status: LightStatus.UNKNOWN };
+}
 
-  try {
-    const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-    const schedule = region?.schedule[queueKey];
-    const dateTodayStr = this.scheduleCache.date_today;
-    const slotsToday = schedule ? schedule[dateTodayStr] : null;
+try {
+const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+const schedule = region?.schedule[queueKey];
+const date = this.scheduleCache.date_today;
+const slots = schedule?.[date];
+if (!slots) {
+  return { time: null, status: LightStatus.UNKNOWN };
+}
 
-    if (!slotsToday) {
-      return { time: null, status: LightStatus.UNKNOWN };
+const allChanges: Array<{ time: Date; status: LightStatus }> = [];
+
+let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+for (let hour = 0; hour < 24; hour++) {
+  for (let minute of [0, 30]) {
+    const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    const curStatus = slots[key] ?? prevStatus;
+
+    if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
+      const utc = new Date(`${date}T${key}:00.000Z`);
+      const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
+      allChanges.push({ time: local, status: curStatus });
     }
 
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const currentTotalMinutes = currentHour * 60 + currentMinute;
-
-    let lastChangeTime: Date | null = null;
-    let lastChangeStatus: LightStatus = LightStatus.UNKNOWN;
-
-    // Початковий статус на 00:00
-    const firstKey = "00:00";
-    let previousStatus: LightStatus = slotsToday[firstKey] ?? LightStatus.UNKNOWN;
-
-    // Перебір з 00:00 до поточного моменту
-    for (let hour = 0; hour < 24; hour++) {
-      for (let minute of [0, 30]) {
-
-        const total = hour * 60 + minute;
-        if (total > currentTotalMinutes) {
-          return { time: lastChangeTime, status: lastChangeStatus };
-        }
-
-        const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-        const currentStatus: LightStatus = slotsToday[key] ?? LightStatus.UNKNOWN;
-
-        if (hour === 0 && minute === 0) {
-          previousStatus = currentStatus;
-          continue;
-        }
-
-        // Перехід стану
-        if (currentStatus !== previousStatus) {
-          const utc = new Date(`${dateTodayStr}T${key}:00.000Z`);
-          const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
-          lastChangeTime = local;
-          lastChangeStatus = currentStatus;
-        }
-
-        previousStatus = currentStatus;
-      }
-    }
-
-    return { time: lastChangeTime, status: lastChangeStatus };
-  } catch {
-    return { time: null, status: LightStatus.UNKNOWN };
+    prevStatus = curStatus;
   }
 }
 
+let baseUtc = new Date(`${date}T00:00:00.000Z`);
+let baseLocal = convertToTimeZone(baseUtc, { timeZone: TZ_KYIV });
 
+const baseStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+let activeStartTime = baseLocal;
+let activeStatus = baseStatus;
+
+for (const change of allChanges) {
+  if (change.time > now) {
+    break;
+  }
+  activeStartTime = change.time;
+  activeStatus = change.status;
+}
+
+return { time: activeStartTime, status: activeStatus };
+} catch {
+return { time: null, status: LightStatus.UNKNOWN };
+}
+}
 
 public findNextScheduledChange(
-  now: Date,
-  regionKey: string,
-  queueKey: string
+now: Date,
+regionKey: string,
+queueKey: string
 ): { time: Date | null, status: LightStatus } {
 
-  if (!this.scheduleCache) {
-    return { time: null, status: LightStatus.UNKNOWN };
-  }
+if (!this.scheduleCache) {
+return { time: null, status: LightStatus.UNKNOWN };
+}
 
-  try {
-    const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-    const schedule = region?.schedule[queueKey];
-    const dateTodayStr = this.scheduleCache.date_today;
-    const slotsToday = schedule ? schedule[dateTodayStr] : null;
+try {
+const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+const schedule = region?.schedule[queueKey];
+const date = this.scheduleCache.date_today;
+const slots = schedule?.[date];
+if (!slots) {
+  return { time: null, status: LightStatus.UNKNOWN };
+}
 
-    if (!slotsToday) {
-      return { time: null, status: LightStatus.UNKNOWN };
+const allChanges: Array<{ time: Date; status: LightStatus }> = [];
+
+let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+for (let hour = 0; hour < 24; hour++) {
+  for (let minute of [0, 30]) {
+    const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    const curStatus = slots[key] ?? prevStatus;
+
+    if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
+      const utc = new Date(`${date}T${key}:00.000Z`);
+      const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
+      allChanges.push({ time: local, status: curStatus });
     }
 
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const currentTotal = h * 60 + m;
-
-    // Поточний слот (округлення вниз)
-    const slotMinute = m < 30 ? 0 : 30;
-    const currentSlotKey = `${String(h).padStart(2, "0")}:${String(slotMinute).padStart(2, "0")}`;
-    let previousStatus: LightStatus = slotsToday[currentSlotKey] ?? LightStatus.UNKNOWN;
-
-    // Скануємо всі наступні слоти
-    for (let hour = h; hour < 24; hour++) {
-      for (let minute of [0, 30]) {
-
-        const total = hour * 60 + minute;
-        if (total <= currentTotal) {
-          continue;
-        }
-
-        const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-        const slotStatus: LightStatus = slotsToday[key] ?? LightStatus.UNKNOWN;
-
-        if (slotStatus !== previousStatus) {
-          const utc = new Date(`${dateTodayStr}T${key}:00.000Z`);
-          const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
-          return { time: local, status: slotStatus };
-        }
-
-        previousStatus = slotStatus;
-      }
-    }
-
-    return { time: null, status: LightStatus.UNKNOWN };
-
-  } catch {
-    return { time: null, status: LightStatus.UNKNOWN };
+    prevStatus = curStatus;
   }
+}
+
+for (const change of allChanges) {
+  if (change.time > now) {
+    return change;
+  }
+}
+
+return { time: null, status: LightStatus.UNKNOWN };
+} catch {
+return { time: null, status: LightStatus.UNKNOWN };
+}
 }
 
   
