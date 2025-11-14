@@ -420,8 +420,8 @@ for (let hour = 0; hour < 24; hour++) {
 
     if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
       const utc = new Date(`${date}T${key}:00.000Z`);
-      const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
-      allChanges.push({ time: local, status: curStatus });
+      // const local = convertToTimeZone(utc, { timeZone: TZ_KYIV }); // <--- ВИДАЛЕНО
+      allChanges.push({ time: utc, status: curStatus }); // <--- ВИПРАВЛЕНО
     }
 
     prevStatus = curStatus;
@@ -480,8 +480,8 @@ for (let hour = 0; hour < 24; hour++) {
 
     if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
       const utc = new Date(`${date}T${key}:00.000Z`);
-      const local = convertToTimeZone(utc, { timeZone: TZ_KYIV });
-      allChanges.push({ time: local, status: curStatus });
+      // const local = convertToTimeZone(utc, { timeZone: TZ_KYIV }); // <--- ВИДАЛЕНО
+      allChanges.push({ time: utc, status: curStatus }); // <--- ВИПРАВЛЕНО
     }
 
     prevStatus = curStatus;
