@@ -222,48 +222,38 @@ export const RESP_PREVIOUS_MONTH_SUMMARY = (params: {
 export const MSG_DISABLED =
   'Бот відключено адміністратором, зверніться до власника бота.\n';
 export const EXPECTED_ENABLE_MOMENT = (params: {
-  readonly scheduleEnableMoment?: Date;
-  readonly schedulePossibleEnableMoment?: Date;
+  readonly scheduleEnableMoment?: Date;
+  readonly schedulePossibleEnableMoment?: Date;
 }) =>
-  params.scheduleEnableMoment && !params.schedulePossibleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
-        params.scheduleEnableMoment,
-        'HH:mm'
-      )}.\n`
-    : !params.scheduleEnableMoment && params.schedulePossibleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на можливе включення о ${format(
-        params.schedulePossibleEnableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    : params.scheduleEnableMoment && params.schedulePossibleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
-        params.scheduleEnableMoment,
-        'HH:mm'
-      )}, ${EMOJ_CROSSED_FINGERS}або навіть раніше - о ${format(
-        params.schedulePossibleEnableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    : '';
+  // 1. Пріоритет - ГАРАНТОВАНЕ включення.
+  params.scheduleEnableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
+        params.scheduleEnableMoment,
+        'HH:mm'
+      )}.\n`
+    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
+    : params.schedulePossibleEnableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на можливе включення о ${format(
+        params.schedulePossibleEnableMoment,
+        'HH:mm'
+      )} (сіра зона).\n`
+    // 3. Інакше нічого не показуємо.
+    : '';
 export const EXPECTED_DISABLE_MOMENT = (params: {
-  readonly scheduleDisableMoment?: Date;
-  readonly schedulePossibleDisableMoment?: Date;
+  readonly scheduleDisableMoment?: Date;
+  readonly schedulePossibleDisableMoment?: Date;
 }) =>
-  params.scheduleDisableMoment && !params.schedulePossibleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
-        params.scheduleDisableMoment,
-        'HH:mm'
-      )}.\n`
-    : !params.scheduleDisableMoment && params.schedulePossibleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на можливе вимкнення о ${format(
-        params.schedulePossibleDisableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    : params.scheduleDisableMoment && params.schedulePossibleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
-        params.scheduleDisableMoment,
-        'HH:mm'
-      )}, ${EMOJ_SYMBOLS_OVER_MOUTH}або навіть раніше - о ${format(
-        params.schedulePossibleDisableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    : '';
+  // 1. Пріоритет - ГАРАНТОВАНЕ вимкнення.
+  params.scheduleDisableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
+        params.scheduleDisableMoment,
+        'HH:mm'
+      )}.\n`
+    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
+    : params.schedulePossibleDisableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на можливе вимкнення о ${format(
+        params.schedulePossibleDisableMoment,
+        'HH:mm'
+      )} (сіра зона).\n`
+    // 3. Інакше нічого не показуємо.
+    : '';
