@@ -504,17 +504,34 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     // Чи зараз за графіком має бути світло?
     const inScheduledLight = lastScheduled && lastScheduled.status === LightStatus.ON;
 
-    // Визначаємо опорний час:
-    // - якщо дія відбулася в періоді світла -> опорний = минуле увімкнення (lastScheduled.time)
-    // - якщо дія відбулася в періоді темряви -> опорний = наступне (планове) увімкнення (nextScheduled.time)
-    let referenceTime: Date | null = null;
-    if (inScheduledLight) {
-      // в періоді світла опорна точка — початок цього періоду (минуле увімкнення)
-      referenceTime = lastScheduled && lastScheduled.time ? lastScheduled.time : null;
-    } else {
-      // в періоді темряви опорна точка — наступне (планове) увімкнення
-      referenceTime = nextScheduled && nextScheduled.time ? nextScheduled.time : null;
-    }
+// Визначаємо опорний час (referenceTime)
+    let referenceTime: Date | null = null;
+
+    if (latest.is_available) {
+      // ФАКТ: Світло УВІМКНУЛИ.
+      // Нам потрібна опорна точка, де світло МАЛО увімкнутися (status 1).
+      if (inScheduledLight) {
+        // Дивно, увімкнули, хоча за графіком вже мало бути.
+        // Беремо час початку цього "світлого" періоду.
+        referenceTime = lastScheduled?.time ?? null;
+      } else {
+        // Нормальна ситуація: увімкнули в "темний" період.
+        // Беремо час, коли воно мало увімкнутися.
+        referenceTime = nextScheduled?.time ?? null;
+      }
+    } else {
+      // ФАКТ: Світло ВИМКНУЛИ.
+      // Нам потрібна опорна точка, де світло МАЛО вимкнутися (status 2).
+      if (inScheduledLight) {
+        // Нормальна ситуація: вимкнули у "світлий" період.
+        // Беремо час, коли воно мало вимкнутися.
+        referenceTime = nextScheduled?.time ?? null;
+      } else {
+        // Дивно, вимкнули, хоча за графіком вже мало бути темно.
+        // Беремо час початку цього "темного" періоду.
+        referenceTime = lastScheduled?.time ?? null;
+      }
+    }
 
     // Якщо referenceTime відсутній — падаємо назад на попередню поведінку з повідомленням поза графіком
     if (!referenceTime) {
