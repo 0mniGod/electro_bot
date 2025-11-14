@@ -485,21 +485,21 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
     const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
 
-    this.logger.warn(
-  `[SCHEDULE DEBUG]
-   nowKyiv = ${nowKyiv.toISOString()}
+//     this.logger.warn(
+//   `[SCHEDULE DEBUG]
+//    nowKyiv = ${nowKyiv.toISOString()}
 
-   lastScheduled = ${lastScheduled ? JSON.stringify(lastScheduled) : 'null'}
-   nextScheduled = ${nextScheduled ? JSON.stringify(nextScheduled) : 'null'}
+//    lastScheduled = ${lastScheduled ? JSON.stringify(lastScheduled) : 'null'}
+//    nextScheduled = ${nextScheduled ? JSON.stringify(nextScheduled) : 'null'}
 
-   latest.time (факт) = ${latest.time.toISOString()}
-   latest.is_available = ${latest.is_available}
+//    latest.time (факт) = ${latest.time.toISOString()}
+//    latest.is_available = ${latest.is_available}
 
-   inScheduledLight = ${
-     lastScheduled && lastScheduled.status === LightStatus.ON
-   }
-  `
-);
+//    inScheduledLight = ${
+//      lastScheduled && lastScheduled.status === LightStatus.ON
+//    }
+//   `
+// );
     
     // Чи зараз за графіком має бути світло?
     const inScheduledLight = lastScheduled && lastScheduled.status === LightStatus.ON;
@@ -525,7 +525,8 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
       }
     } else {
       // diff = фактичне − опорне (в хвилинах)
-      const diffInMinutes = differenceInMinutes(latest.time, referenceTime);
+      const localLatestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
+      const diffInMinutes = differenceInMinutes(localLatestTime, referenceTime);
 
       // Загальна інтерпретація (уніфікована)
       // - diff > 30  => фактичне значно пізніше за опорне (затримка)
