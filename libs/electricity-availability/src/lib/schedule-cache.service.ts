@@ -417,11 +417,11 @@ for (let hour = 0; hour < 24; hour++) {
   for (let minute of [0, 30]) {
     const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
     const curStatus = slots[key] ?? prevStatus;
-
+    
     if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
-      const utc = new Date(`${date}T${key}:00.000Z`);
-      // const local = convertToTimeZone(utc, { timeZone: TZ_KYIV }); // <--- ВИДАЛЕНО
-      allChanges.push({ time: utc, status: curStatus }); // <--- ВИПРАВЛЕНО
+      // Кажемо, що час з API - це Київський час (UTC+2)
+      const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
+      allChanges.push({ time: utc, status: curStatus });
     }
 
     prevStatus = curStatus;
@@ -479,9 +479,9 @@ for (let hour = 0; hour < 24; hour++) {
     const curStatus = slots[key] ?? prevStatus;
 
     if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
-      const utc = new Date(`${date}T${key}:00.000Z`);
-      // const local = convertToTimeZone(utc, { timeZone: TZ_KYIV }); // <--- ВИДАЛЕНО
-      allChanges.push({ time: utc, status: curStatus }); // <--- ВИПРАВЛЕНО
+      // Кажемо, що час з API - це Київський час (UTC+2)
+      const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
+      allChanges.push({ time: utc, status: curStatus });
     }
 
     prevStatus = curStatus;
