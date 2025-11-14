@@ -22,7 +22,7 @@ import {
   isEqual,  
   startOfHour, 
 } from 'date-fns'; // Додано isBefore, subDays
-import { convertToTimeZone, format } from 'date-fns-timezone';
+import { convertToTimeZone, formatToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { firstValueFrom } from 'rxjs';
 import { HistoryItem } from './history-item.type';
@@ -574,7 +574,7 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
         // --- ------------------------- ---
 
         // --- 4. Формуємо саме повідомлення ---
-        const when = format(latest.time, 'HH:mm dd.MM', { 
+        const when = formatToTimeZone(latest.time, 'HH:mm dd.MM', { 
           locale: uk, 
           timeZone: place.timezone 
         });
@@ -585,10 +585,10 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
             ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage })
             : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage });
         } else {
-          const previousTime = convertToTimeZone(previous.time, { timeZone: place.timezone });
-          const howLong = formatDistance(latestTime, previousTime, { locale: uk, includeSeconds: false });
-          const diffInMinutes = Math.abs(differenceInMinutes(previousTime, latestTime));
-
+          // const previousTime = convertToTimeZone(previous.time, { timeZone: place.timezone }); // <--- Цей рядок більше не потрібен
+          const howLong = formatDistance(latest.time, previous.time, { locale: uk, includeSeconds: false }); // <--- ВИПРАВЛЕНО
+          const diffInMinutes = Math.abs(differenceInMinutes(previous.time, latest.time)); // <--- ВИПРАВЛЕНО
+          
           if (latest.is_available) {
             response =
               diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
