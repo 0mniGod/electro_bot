@@ -11,7 +11,6 @@ import {
   eachDayOfInterval,
   endOfDay,
   endOfMonth,
-  format,
   formatDistance,
   getDay,
   getMonth,
@@ -23,7 +22,7 @@ import {
   isEqual,  
   startOfHour, 
 } from 'date-fns'; // Додано isBefore, subDays
-import { convertToTimeZone } from 'date-fns-timezone';
+import { convertToTimeZone, format } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { firstValueFrom } from 'rxjs';
 import { HistoryItem } from './history-item.type';
@@ -468,7 +467,7 @@ public async refreshInternalCache(): Promise<void> {
         let scheduleDisableMoment: Date | undefined;
         let schedulePossibleDisableMoment: Date | undefined;
         let scheduleContextMessage = '';
-        const nowKyiv = convertToTimeZone(new Date(), { timeZone: place.timezone });
+        const nowKyiv = new Date();
 
         const PLACE_ID_TO_SCHEDULE = "001"; 
         const REGION_KEY = "kyiv";
@@ -482,8 +481,8 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     scheduleDisableMoment = prediction.scheduleDisableMoment;
     schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
 
-    const lastScheduled = convertToTimeZone(this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY), { timeZone: place.timezone });
-    const nextScheduled = convertToTimeZone(this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY), { timeZone: place.timezone });
+    const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
+    const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
 
     this.logger.warn(
   `[SCHEDULE DEBUG]
@@ -525,8 +524,8 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
       }
     } else {
       // diff = фактичне − опорне (в хвилинах)
-      const localLatestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
-      const localReferenceTime = referenceTime ? convertToTimeZone(referenceTime, { timeZone: place.timezone }) : null;
+      const localLatestTime = latest.time; 
+      const localReferenceTime = referenceTime; 
       const diffInMinutes = differenceInMinutes(localLatestTime, localReferenceTime);
 
       // Загальна інтерпретація (уніфікована)
@@ -575,8 +574,10 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
         // --- ------------------------- ---
 
         // --- 4. Формуємо саме повідомлення ---
-        const latestTime = convertToTimeZone(latest.time, { timeZone: place.timezone });
-        const when = format(latestTime, 'HH:mm dd.MM', { locale: uk });
+        const when = format(latest.time, 'HH:mm dd.MM', { 
+          locale: uk, 
+          timeZone: place.timezone 
+        });
         let response: string;
 
         if (!previous) {
