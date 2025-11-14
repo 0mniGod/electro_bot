@@ -422,7 +422,7 @@ public async refreshInternalCache(): Promise<void> {
   }
 
 /**
-   * ОНОВЛЕНИЙ v3: Зберігає стан, генерує "розумні" сповіщення
+   * ОНОВЛЕНИЙ v16: Зберігає стан, генерує "розумні" сповіщення (за вашими правилами)
    * і викликає NotificationBotService для відправки.
    */
   private async handleAvailabilityChange(params: {
@@ -467,7 +467,7 @@ public async refreshInternalCache(): Promise<void> {
         let schedulePossibleEnableMoment: Date | undefined;
         let scheduleDisableMoment: Date | undefined;
         let schedulePossibleDisableMoment: Date | undefined;
-        let scheduleContextMessage = ''; // <--- Наша нова змінна
+        let scheduleContextMessage = '';
         const nowKyiv = convertToTimeZone(new Date(), { timeZone: place.timezone });
 
         const PLACE_ID_TO_SCHEDULE = "001"; 
@@ -476,88 +476,91 @@ public async refreshInternalCache(): Promise<void> {
 
         if (place.id === PLACE_ID_TO_SCHEDULE) {
           try {
-              // --- 3a. Отримуємо прогноз з кешу ---
+              // --- 3a. Отримуємо прогноз з кешу (для верхнього рядка) ---
               const prediction = this.scheduleCacheService.getSchedulePrediction(REGION_KEY, QUEUE_KEY);
               scheduleEnableMoment = prediction.scheduleEnableMoment;
               schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
               scheduleDisableMoment = prediction.scheduleDisableMoment;
               schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
 
-              // --- 3b. АНАЛІЗ ДЛЯ КОНТЕКСТУ ---
-              if (!latest.is_available) {
-                // --- ВИМКНЕННЯ СВІТЛА ---
-                const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
-                const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
+              // --- !!! НОВА ЛОГІКА АНАЛІЗУ ГРАФІКА (v16) !!! ---
               
-                if (!lastScheduled && !nextScheduled) {
-                  scheduleContextMessage = 'Вимкнення поза графіком.';
-                } else {
-                  if (lastScheduled && lastScheduled.status === LightStatus.ON) {
-                    // Мав бути період зі світлом → беремо: nextScheduled.time - now
-                    if (nextScheduled?.status === LightStatus.OFF) {
-                      const diff = differenceInMinutes(nextScheduled.time, latest.time);
-                      if (Math.abs(diff) <= 30) {
-                        scheduleContextMessage = 'Вимкнення відбулося в рамках графіка.';
-                      } else {
-                        scheduleContextMessage = diff < 0
-                          ? 'Вимкнули раніше графіка.'
-                          : 'Вимкнули пізніше графіка.';
-                      }
-                    } else {
-                      scheduleContextMessage = 'Вимкнення поза графіком.';
-                    }
-                  } else if (lastScheduled && lastScheduled.status === LightStatus.OFF) {
-                    // Мав бути період без світла → беремо: now - lastScheduled.time
-                    const diff = differenceInMinutes(latest.time, lastScheduled.time);
-                    if (Math.abs(diff) <= 30) {
-                      scheduleContextMessage = 'Вимкнення відбулося за графіком.';
-                    } else {
-                      scheduleContextMessage = diff < 0
-                        ? 'Вимкнули раніше планового графіка.'
-                        : 'Світло протрималось довше, ніж за графіком.';
+              const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
+              const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
+
+              if (!latest.is_available) {
+                // --- СВІТЛО ВИМКНУЛИ (Fact: OFF) ---
+                
+                if (lastScheduled.status === LightStatus.ON) {
+                  // Сценарій 1a: Вимкнули під час планового СВІТЛА (МЕНШЕ світла)
+                  if (nextScheduled.time && nextScheduled.status === LightStatus.OFF) {
+                    // diff = (Планове Вимкнення) - (Фактичне Вимкнення)
+                    const diffInMinutes = differenceInMinutes(nextScheduled.time, latest.time);
+                    
+                    if (diffInMinutes >= -30 && diffInMinutes <= 30) {
+                       scheduleContextMessage = 'ℹ️ Вимкнення відбулося приблизно за графіком.';
+                    } else if (diffInMinutes > 30) { // Вимкнули раніше (>30 хв)
+                       scheduleContextMessage = '🤬 Вимкнули раніше графіка. Клята русня!';
+                       if (diffInMinutes > 120) {
+                          scheduleContextMessage = '🚨 Схоже, це екстрене відключення (вимкнули >2 годин до графіка). Клята русня!';
+                       }
+                    } else if (diffInMinutes < -30) { // Вимкнули пізніше
+                       scheduleContextMessage = '💡 Світло було довше, ніж за графіком! Слава Енергетикам!';
                     }
                   } else {
-                    scheduleContextMessage = 'Вимкнення поза графіком.';
+                    scheduleContextMessage = '🚨 Увага! Вимкнення поза графіком (в цей час мало бути світло).';
+                  }
+                } else {
+                  // Сценарій 1b: Вимкнули під час планової ТЕМРЯВИ (БІЛЬШЕ світла)
+                  // (Це сталося, тому що світло було довше, ніж очікувалось)
+                  if (lastScheduled.time) {
+                    // diff = (Фактичне вимкнення) - (Планове вимкнення)
+                    const diffInMinutes = differenceInMinutes(latest.time, lastScheduled.time); // (22:59 - 20:30 = +89 хв)
+                    
+                    if (diffInMinutes > 30) { // Вимкнули значно пізніше -> БІЛЬШЕ СВІТЛА
+                      scheduleContextMessage = '💡 Світло було довше, ніж за графіком! Слава Енергетикам!';
+                    } else {
+                      scheduleContextMessage = 'ℹ️ Вимкнення відбулося за графіком.';
+                    }
                   }
                 }
               } else {
-                // --- УВІМКНЕННЯ СВІТЛА ---
-                const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
-                const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
-              
-                if (!lastScheduled && !nextScheduled) {
-                  scheduleContextMessage = 'Увімкнення поза графіком.';
-                } else {
-                  if (lastScheduled && lastScheduled.status === LightStatus.OFF) {
-                    // Мав бути період без світла → nextScheduled.time - now
-                    if (nextScheduled?.status === LightStatus.ON) {
-                      const diff = differenceInMinutes(nextScheduled.time, latest.time);
-                      if (Math.abs(diff) <= 30) {
-                        scheduleContextMessage = 'Увімкнення відбулося за графіком.';
-                      } else {
-                        scheduleContextMessage = diff < 0
-                          ? 'Світло увімкнули раніше графіка.'
-                          : 'Світло увімкнули пізніше графіка.';
-                      }
-                    } else {
-                      scheduleContextMessage = 'Увімкнення поза графіком.';
-                    }
-                  } else if (lastScheduled && lastScheduled.status === LightStatus.ON) {
-                    // Мав бути період зі світлом → now - lastScheduled.time
-                    const diff = differenceInMinutes(latest.time, lastScheduled.time);
-                    if (Math.abs(diff) <= 30) {
-                      scheduleContextMessage = 'Увімкнення відбулося за графіком.';
-                    } else {
-                      scheduleContextMessage = diff < 0
-                        ? 'Світло дали раніше графіка.'
-                        : 'Світло дали пізніше графіка.';
+                // --- СВІТЛО УВІМКНУЛИ (Fact: ON) ---
+                
+                if (lastScheduled.status === LightStatus.OFF) {
+                  // Сценарій 2a: Увімкнули під час планової ТЕМРЯВИ (БІЛЬШЕ світла)
+                  if (nextScheduled.time && nextScheduled.status === LightStatus.ON) {
+                    // diff = (Планове Увімкнення) - (Фактичне Увімкнення)
+                    const diffInMinutes = differenceInMinutes(nextScheduled.time, latest.time);
+                    
+                    if (diffInMinutes > 30) { // > 30 (ввімкнули *раніше*) -> БІЛЬШЕ СВІТЛА
+                       scheduleContextMessage = '💡 Світло дали раніше графіка! Слава Енергетикам!';
+                       if (diffInMinutes > 120) {
+                          scheduleContextMessage = '🙏💡 Світло дали БІЛЬШЕ НІЖ НА 2 ГОДИНИ раніше! Слава Богу та Енергетикам!';
+                       }
+                    } else if (diffInMinutes < -30) { // < -30 (ввімкнули *пізніше*) -> МЕНШЕ СВІТЛА
+                       scheduleContextMessage = '🤬 Ввімкнули пізніше графіка. Клята русня!';
+                    } else { // (від -30 до +30)
+                       scheduleContextMessage = 'ℹ️ Увімкнення відбулося за графіком.';
                     }
                   } else {
-                    scheduleContextMessage = 'Увімкнення поза графіком.';
+                    scheduleContextMessage = '💡 Увага! Увімкнення поза графіком (в цей час *не* мало бути світла).';
+                  }
+                } else {
+                  // Сценарій 2b: Увімкнули під час планового СВІТЛА (МЕНШЕ світла)
+                  // (Це означає, що світло вимикали, хоча не мали)
+                  if (lastScheduled.time) {
+                    // diff = (Фактичне Увімкнення) - (Планове Увімкнення)
+                    const diffInMinutes = differenceInMinutes(latest.time, lastScheduled.time);
+                    if (diffInMinutes > 30) { // Ввімкнули значно пізніше -> МЕНШЕ СВІТЛА
+                       scheduleContextMessage = '🤬 Світла не було довше, ніж за графіком. Клята русня!';
+                    } else {
+                       scheduleContextMessage = 'ℹ️ Увімкнення відбулося (але вимкнення не мало бути).';
+                    }
                   }
                 }
               }
-            // --- КІНЕЦЬ АНАЛІЗУ ДЛЯ КОНТЕКСТУ ---
+              // --- КІНЕЦЬ АНАЛІЗУ ДЛЯ КОНТЕКСТУ ---
 
           } catch (scheduleError) {
                this.logger.error(`[Schedule] Failed to get prediction for notification: ${scheduleError}`);
