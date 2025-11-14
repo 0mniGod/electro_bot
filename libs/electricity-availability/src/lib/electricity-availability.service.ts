@@ -482,8 +482,8 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     scheduleDisableMoment = prediction.scheduleDisableMoment;
     schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
 
-    const lastScheduled = this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
-    const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
+    const lastScheduled = convertToTimeZone(this.scheduleCacheService.findLastScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY), { timeZone: place.timezone });
+    const nextScheduled = convertToTimeZone(this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY), { timeZone: place.timezone });
 
     this.logger.warn(
   `[SCHEDULE DEBUG]
