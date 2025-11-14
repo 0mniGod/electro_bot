@@ -13,6 +13,7 @@ import {
   endOfMonth,
   formatDistance,
   getDay,
+  format,
   getMonth,
   startOfDay,
   startOfMonth,
@@ -22,7 +23,7 @@ import {
   isEqual,  
   startOfHour, 
 } from 'date-fns'; // Додано isBefore, subDays
-import { convertToTimeZone, formatToTimeZone } from 'date-fns-timezone';
+import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { firstValueFrom } from 'rxjs';
 import { HistoryItem } from './history-item.type';
@@ -574,10 +575,10 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
         // --- ------------------------- ---
 
         // --- 4. Формуємо саме повідомлення ---
-        const when = formatToTimeZone(latest.time, 'HH:mm dd.MM', { 
-          locale: uk, 
-          timeZone: place.timezone 
-        });
+        // 1. Спочатку конвертуємо час у потрібну зону
+        const latestTimeInZone = convertToTimeZone(latest.time, { timeZone: place.timezone });
+        // 2. Тепер форматуємо (стандартний 'format' підтримує 'locale')
+        const when = format(latestTimeInZone, 'HH:mm dd.MM', { locale: uk }); // <--- ВИПРАВЛЕНО
         let response: string;
 
         if (!previous) {
