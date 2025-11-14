@@ -486,11 +486,21 @@ if (place.id === PLACE_ID_TO_SCHEDULE) {
     const nextScheduled = this.scheduleCacheService.findNextScheduledChange(nowKyiv, REGION_KEY, QUEUE_KEY);
 
     this.logger.warn(
-  `[DEBUG_CHECK] lastScheduledChange=${lastScheduled.time?.toISOString() ?? 'null'}, `
-  + `lastScheduledStatus=${lastScheduled.status}, `
-  + `realRestoreTime=${realRestoreTime.toISOString()}`
-);
+  `[SCHEDULE DEBUG]
+   nowKyiv = ${nowKyiv.toISOString()}
 
+   lastScheduled = ${lastScheduled ? JSON.stringify(lastScheduled) : 'null'}
+   nextScheduled = ${nextScheduled ? JSON.stringify(nextScheduled) : 'null'}
+
+   latest.time (факт) = ${latest.time.toISOString()}
+   latest.is_available = ${latest.is_available}
+
+   inScheduledLight = ${
+     lastScheduled && lastScheduled.status === LightStatus.ON
+   }
+  `
+);
+    
     // Чи зараз за графіком має бути світло?
     const inScheduledLight = lastScheduled && lastScheduled.status === LightStatus.ON;
 
