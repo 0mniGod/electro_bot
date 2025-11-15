@@ -97,7 +97,7 @@ constructor(
   }
 
 @Cron('*/30 * * * *') // Раз на 30 хвилин
-. public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
+ public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
   	if (this.isFetching) {
   	  this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
   	  return false;
