@@ -97,173 +97,189 @@ constructor(
   }
 
 @Cron('*/30 * * * *') // Раз на 30 хвилин
-  public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
-    if (this.isFetching) {
-      this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
-      return false;
-    }
-    this.isFetching = true;
-    this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
+. public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
+  	if (this.isFetching) {
+  	  this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
+  	  return false;
+  	}
+  	this.isFetching = true;
+  	this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
 
-    const oldRegionsJson = JSON.stringify(this.scheduleCache?.regions);
+  	// --- 💡 ПОЧАТОК НОВОЇ ЛОГІКИ 💡 ---
+  	// Наші цільові регіон та черга
+  	const MY_REGION_KEY = 'kyiv';
+  	const MY_QUEUE_KEY = '2.1';
 
-    try {
-      const requestOptions = {
-        timeout: 45000, 
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
-          'Accept-Encoding': 'identity'
-        },
-        decompress: false
-      };
-      
-      this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
+  	// Допоміжна функція для витягування ТІЛЬКИ НАШОГО графіка
+  	const getMyScheduleForDate = (cache: ScheduleCache | null, date: string): { json: string; hasData: boolean } => {
+  		if (!cache || !cache.regions || !date) return { json: "{}", hasData: false };
 
-      const response = await firstValueFrom(
-        this.httpService.get<ScheduleCache>(API_URL, requestOptions)
-      );
+  		try {
+  			// 1. Знаходимо наш регіон
+  			const region = cache.regions.find(r => r.cpu === MY_REGION_KEY);
+  			if (!region || !region.schedule) return { json: "{}", hasData: false };
 
-      this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
-      this.logger.debug(`[ScheduleCache] Raw response data (first 200 chars): ${JSON.stringify(response.data).substring(0, 200)}...`);
+  			// 2. Знаходимо нашу чергу
+  			const queueSchedule = region.schedule[MY_QUEUE_KEY];
+  			if (!queueSchedule || !queueSchedule[date]) return { json: "{}", hasData: false };
 
-      const responseData = response.data; 
+  			// 3. Сортуємо ключі ЧАСУ (00:00, 00:30...)
+  			const slots = queueSchedule[date];
+  			const sortedTimeKeys = Object.keys(slots).sort();
+  			
+  			// 💡 ВИПРАВЛЕННЯ: Перевіряємо, чи є реальні дані
+  			if (sortedTimeKeys.length === 0) {
+  				return { json: "{}", hasData: false };
+  			}
+  			
+  			const stableSlots = {};
+  			for (const timeKey of sortedTimeKeys) {
+  				stableSlots[timeKey] = slots[timeKey];
+  			}
+  			return { json: JSON.stringify(stableSlots), hasData: true };
 
-      if (responseData && responseData.regions) {
-        const newRegionsJson = JSON.stringify(responseData.regions);
-        if (newRegionsJson === oldRegionsJson) {
-          this.logger.log('[ScheduleCache] Fetched schedule data (regions) is identical. No update needed.');
-          this.scheduleCache = responseData; 
-          this.lastNotifiedScheduleJSON = newRegionsJson;
-          return true;
-        }
-        this.logger.log('[ScheduleCache] !!! Schedule data (regions) change DETECTED! Updating cache... !!!');
-        
-        const newTodayDate = responseData.date_today;
-        const newTomorrowDate = responseData.date_tomorrow;
+  		} catch (e) {
+  			this.logger.error(`[ScheduleCache] Failed to extract ${MY_REGION_KEY}/${MY_QUEUE_KEY} for ${date}`, e);
+  			return { json: "{}", hasData: false }; // Повертаємо порожній об'єкт у разі помилки
+  		}
+  	};
+  	// --- 💡 КІНЕЦЬ НОВОЇ ЛОГІКИ 💡 ---
 
-        let todayScheduleHasChanged = false;
-        let newScheduleForTomorrowAppeared = false;
 
-        // --- 💡 ПОЧАТОК ВИПРАВЛЕННЯ 💡 ---
-        // Функція для отримання JSON-рядка слотів у СТАБІЛЬНОМУ ПОРЯДКУ
-        const getScheduleSlotsForDate = (cache: ScheduleCache | null, date: string): string => {
-            if (!cache || !cache.regions || !date) return "{}";
-            
-            const allQueueData = {};
-            
-            // 1. Збираємо всі дані за чергами
-            for (const region of cache.regions) {
-                if (region.schedule) {
-                    for (const queueKey in region.schedule) {
-                        if (region.schedule[queueKey][date]) {
-                            allQueueData[queueKey] = region.schedule[queueKey][date];
-                        }
-                    }
+  	try {
+  	  const requestOptions = {
+  	  	timeout: 45000, 
+  	  	headers: {
+  	  	  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
+  	  	  'Accept-Encoding': 'identity'
+  	  	},
+  	  	decompress: false
+  	  };
+  	  
+  	  this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
+
+  	  const response = await firstValueFrom(
+  	  	this.httpService.get<ScheduleCache>(API_URL, requestOptions)
+  	  );
+
+  	  this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
+  	  this.logger.debug(`[ScheduleCache] Raw response data (first 200 chars): ${JSON.stringify(response.data).substring(0, 200)}...`);
+
+  	  const responseData = response.data; 
+
+  	  if (responseData && responseData.regions) {
+  	  		  
+  	  	const newTodayDate = responseData.date_today;
+  	  	const newTomorrowDate = responseData.date_tomorrow;
+
+  	  	let todayScheduleHasChanged = false;
+  	  	let newScheduleForTomorrowAppeared = false;
+        let rolledOverDate: string | null = null; // 💡 Зберігаємо дату, яка "переїхала"
+
+  	  	// 1. Очищуємо старі дати (логіка з минулого разу)
+  	  	this.notifiedTomorrowDates.forEach(date => {
+  	  		if (date <= newTodayDate) { 
+  	  			this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
+  	  			this.notifiedTomorrowDates.delete(date);
+                if (date === newTodayDate) {
+                    rolledOverDate = date; // 💡 Запам'ятовуємо, що 15.11 - це вчорашнє "завтра"
                 }
-            }
+  	  		}
+  	  	});
 
-            // 2. Отримуємо всі ключі черг (напр., "2.1", "2.2"), сортуємо їх
-            const sortedKeys = Object.keys(allQueueData).sort();
-            
-            // 3. Створюємо новий об'єкт з відсортованими ключами
-            const stableSlotsByQueue = {};
-            for (const key of sortedKeys) {
-                stableSlotsByQueue[key] = allQueueData[key];
-            }
-
-            // 4. Stringify: Тепер рядок завжди буде однаковий для однакових даних
-            return JSON.stringify(stableSlotsByQueue);
-        };
-        // --- 💡 КІНЕЦЬ ВИПРАВЛЕННЯ 💡 ---
-
-        // 3. Очищуємо старі дати (логіка з минулого разу)
-        this.notifiedTomorrowDates.forEach(date => {
-            if (date <= newTodayDate) { 
-                this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
-                this.notifiedTomorrowDates.delete(date);
-            }
-        });
-
-        // 4. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
-        const oldTodaySlotsJson = getScheduleSlotsForDate(this.scheduleCache, newTodayDate);
-        const newTodaySlotsJson = getScheduleSlotsForDate(responseData, newTodayDate);
-        
-        if (newTodaySlotsJson !== "{}" && oldTodaySlotsJson !== newTodaySlotsJson) {
-             this.logger.log(`[ScheduleCache] Schedule for TODAY (${newTodayDate}) has changed or appeared.`);
-             todayScheduleHasChanged = true;
-        } else {
-             this.logger.log(`[ScheduleCache] Schedule for TODAY (${newTodayDate}) has NOT changed.`);
-        }
-
-        // 5. Перевіряємо, чи з'явився графік на "ЗАВТРА"
-        if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
-            const newTomorrowSlotsJson = getScheduleSlotsForDate(responseData, newTomorrowDate);
-            
-            if (newTomorrowSlotsJson !== "{}") {
-                this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
-                newScheduleForTomorrowAppeared = true;
-                this.notifiedTomorrowDates.add(newTomorrowDate);
+  	  	// 2. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
+  	  	const { json: oldTodaySlotsJson, hasData: oldTodayHadData } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
+  	  	const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
+  	  	
+        // 💡 ВИПРАВЛЕННЯ: Перевіряємо, чи є нові дані, І чи вони не збігаються зі старими
+  	  	if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
+            // 💡 ДОДАТКОВА ПЕРЕВІРКА: Не сповіщати, якщо це просто "переїзд" дати опівночі
+            if (rolledOverDate && !oldTodayHadData) {
+                 this.logger.log(`[ScheduleCache] Schedule for TODAY (${newTodayDate}) just rolled over from TOMORROW. Suppressing notification.`);
             } else {
-                this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
+                 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
+                 todayScheduleHasChanged = true;
             }
-        }
-        
-        // Зберігаємо кеш в будь-якому випадку
-        this.scheduleCache = responseData;
-        this.lastNotifiedScheduleJSON = newRegionsJson; // Зберігаємо JSON ТІЛЬКИ 'regions'
+  	  	} else {
+  	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has NOT changed.`);
+  	  	}
 
-        // (Логіка сповіщень)
-        if (notifyUsers) {
-          try {
-            const updateMessages: string[] = [];
-            
-            if (todayScheduleHasChanged) {
-                const dateTodayStr = format(new Date(newTodayDate), 'dd.MM');
-                updateMessages.push(`🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`);
-            }
-            
-            if (newScheduleForTomorrowAppeared) {
-              const dateTomorrowStr = format(new Date(newTomorrowDate), 'dd.MM');
-              updateMessages.push(`💡 **З'явився графік на завтра (${dateTomorrowStr})!**`);
-            }
-            
-            if (updateMessages.length > 0) {
-                const finalMessage = updateMessages.join('\n\n');
-                this.logger.log(`[ScheduleCache] Sending notification: "${finalMessage}"`);
-                await this.notificationBotService.sendScrapedNotification(finalMessage);
-            } else {
-                this.logger.log('[ScheduleCache] No significant changes found to notify.');
-            }
-          } catch (notifyError) {
-             this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
-          }
-        }
-        return true; // Успіх
+  	  	// 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
+  	  	if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
+            // 💡 ВИПРАВЛЕННЯ: Використовуємо 'hasData'
+  	  		const { json: newTomorrowSlotsJson, hasData: newTomorrowHasData } = getMyScheduleForDate(responseData, newTomorrowDate);
+  	  		
+  	  		if (newTomorrowHasData) {
+                // Додатково перевіряємо, чи він не такий самий, як старий (на випадок перезапуску)
+  	  			const { json: oldTomorrowSlotsJson } = getMyScheduleForDate(this.scheduleCache, newTomorrowDate);
+                if (newTomorrowSlotsJson !== oldTomorrowSlotsJson) {
+                     this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
+                     newScheduleForTomorrowAppeared = true;
+                     this.notifiedTomorrowDates.add(newTomorrowDate);
+                } else {
+                     this.logger.log(`[ScheduleCache] Schedule for TOMORROW (${newTomorrowDate}) exists, but is identical to cache. Suppressing notification.`);
+                     // Додаємо, щоб не перевіряти знову
+                     this.notifiedTomorrowDates.add(newTomorrowDate);
+                }
+  	  		} else {
+  	  			this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
+  	  		}
+  	  	}
+  	  	
+  	  	// 4. Зберігаємо НОВІ дані в кеш (це тепер наша "стара" версія для наступної перевірки)
+  	  	this.scheduleCache = responseData;
 
-      } else {
-        this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
-        return false;
-      }
+  	  	// 5. Логіка сповіщень
+  	  	if (notifyUsers) {
+  	  	  try {
+  	  		const updateMessages: string[] = [];
+  	  		
+  	  		if (todayScheduleHasChanged) {
+  	  			const dateTodayStr = format(new Date(newTodayDate), 'dd.MM');
+  	  			updateMessages.push(`🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`);
+  	  		}
+  	  		  
+  	  		if (newScheduleForTomorrowAppeared) {
+  	  		  const dateTomorrowStr = format(new Date(newTomorrowDate), 'dd.MM');
+  	  		  updateMessages.push(`💡 **З'явився графік на завтра (${dateTomorrowStr})!**`);
+  	  		}
+  	  		  
+  	  		if (updateMessages.length > 0) {
+  	  			const finalMessage = updateMessages.join('\n\n');
+  	  			this.logger.log(`[ScheduleCache] Sending notification: "${finalMessage}"`);
+  	  			await this.notificationBotService.sendScrapedNotification(finalMessage);
+  	  		} else {
+  	  			this.logger.log('[ScheduleCache] No significant changes found to notify.');
+  	  		}
+  	  	  } catch (notifyError) {
+  	  		 	this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
+  	  	  }
+  	  	}
+  	  	return true; // Успіх
 
-    } catch (error: any) {
-      
-      this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
-      if (error.isAxiosError) {
-        this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
-        this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
-        this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
-        this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
-      } else {
-        this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
-      }
-      this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
-      return false;
+  	  } else {
+  	  	this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
+  	  	return false;
+  	  }
 
-    } finally {
-      this.isFetching = false;
-    }
+  	} catch (error: any) {
+  	  
+  	  this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
+  	  if (error.isAxiosError) {
+  	  	this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
+  	  	this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
+  	  	this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
+  	  	this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
+  	  } else {
+  	  	this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
+  	  }
+  	  this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
+  	  return false;
+
+  	} finally {
+  	  this.isFetching = false;
+  	}
   }
-
   /**
    * Головний метод. Отримує прогноз на основі кешованих даних.
    */
