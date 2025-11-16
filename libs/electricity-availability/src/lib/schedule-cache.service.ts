@@ -97,7 +97,7 @@ constructor(
   }
 
 @Cron('*/30 * * * *') // Раз на 30 хвилин
- public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
+  public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
   	if (this.isFetching) {
   	  this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
   	  return false;
@@ -188,21 +188,22 @@ constructor(
   	  	});
 
   	  	// 2. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
-  	  	const { json: oldTodaySlotsJson, hasData: oldTodayHadData } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
+  	  	const { json: oldTodaySlotsJson } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
   	  	const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
   	  	
-        // 💡 ВИПРАВЛЕННЯ: Перевіряємо, чи є нові дані, І чи вони не збігаються зі старими
-  	  	if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
-            // 💡 ДОДАТКОВА ПЕРЕВІРКА: Не сповіщати, якщо це просто "переїзд" дати опівночі
-            if (rolledOverDate && !oldTodayHadData) {
-                 this.logger.log(`[ScheduleCache] Schedule for TODAY (${newTodayDate}) just rolled over from TOMORROW. Suppressing notification.`);
-            } else {
-                 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
-                 todayScheduleHasChanged = true;
-            }
+        // 💡 ВИПРАВЛЕННЯ: Повністю ігноруємо зміни "Сьогодні", якщо це дата, яка щойно "переїхала"
+  	  	if (rolledOverDate === newTodayDate) {
+  	  		this.logger.log(`[ScheduleCache] Today's date (${newTodayDate}) just rolled over. Suppressing "Today" change check.`);
+  	  		todayScheduleHasChanged = false; // Примусово вимикаємо
+  	  	}
+  	  	// Перевіряємо зміни "Сьогодні" ТІЛЬКИ якщо це не "переїзд"
+  	  	else if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
+  	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
+  	  		 todayScheduleHasChanged = true;
   	  	} else {
   	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has NOT changed.`);
   	  	}
+
 
   	  	// 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
   	  	if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
