@@ -127,16 +127,22 @@ constructor(
   			const slots = queueSchedule[date];
   			const sortedTimeKeys = Object.keys(slots).sort();
   			
-  			// 💡 ВИПРАВЛЕННЯ: Перевіряємо, чи є реальні дані
   			if (sortedTimeKeys.length === 0) {
   				return { json: "{}", hasData: false };
   			}
   			
+            // --- 💡 ВИПРАВЛЕННЯ: "hasData" = true ТІЛЬКИ якщо є '1' або '2' ---
+            let hasRealData = false; 
   			const stableSlots = {};
   			for (const timeKey of sortedTimeKeys) {
-  				stableSlots[timeKey] = slots[timeKey];
+                const status = slots[timeKey];
+  				stableSlots[timeKey] = status;
+                if (status === LightStatus.ON || status === LightStatus.OFF) {
+                    hasRealData = true; // Знайшли реальні дані!
+                }
   			}
-  			return { json: JSON.stringify(stableSlots), hasData: true };
+  			return { json: JSON.stringify(stableSlots), hasData: hasRealData };
+            // --- 💡 КІНЕЦЬ ВИПРАВЛЕННЯ ---
 
   		} catch (e) {
   			this.logger.error(`[ScheduleCache] Failed to extract ${MY_REGION_KEY}/${MY_QUEUE_KEY} for ${date}`, e);
@@ -174,7 +180,7 @@ constructor(
 
   	  	let todayScheduleHasChanged = false;
   	  	let newScheduleForTomorrowAppeared = false;
-        let rolledOverDate: string | null = null; // 💡 Зберігаємо дату, яка "переїхала"
+        let rolledOverDate: string | null = null; 
 
   	  	// 1. Очищуємо старі дати (логіка з минулого разу)
   	  	this.notifiedTomorrowDates.forEach(date => {
@@ -182,7 +188,7 @@ constructor(
   	  			this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
   	  			this.notifiedTomorrowDates.delete(date);
                 if (date === newTodayDate) {
-                    rolledOverDate = date; // 💡 Запам'ятовуємо, що 15.11 - це вчорашнє "завтра"
+                    rolledOverDate = date; 
                 }
   	  		}
   	  	});
@@ -191,12 +197,10 @@ constructor(
   	  	const { json: oldTodaySlotsJson } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
   	  	const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
   	  	
-        // 💡 ВИПРАВЛЕННЯ: Повністю ігноруємо зміни "Сьогодні", якщо це дата, яка щойно "переїхала"
   	  	if (rolledOverDate === newTodayDate) {
   	  		this.logger.log(`[ScheduleCache] Today's date (${newTodayDate}) just rolled over. Suppressing "Today" change check.`);
   	  		todayScheduleHasChanged = false; // Примусово вимикаємо
   	  	}
-  	  	// Перевіряємо зміни "Сьогодні" ТІЛЬКИ якщо це не "переїзд"
   	  	else if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
   	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
   	  		 todayScheduleHasChanged = true;
@@ -207,20 +211,23 @@ constructor(
 
   	  	// 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
   	  	if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
-            // 💡 ВИПРАВЛЕННЯ: Використовуємо 'hasData'
   	  		const { json: newTomorrowSlotsJson, hasData: newTomorrowHasData } = getMyScheduleForDate(responseData, newTomorrowDate);
   	  		
   	  		if (newTomorrowHasData) {
-                // Додатково перевіряємо, чи він не такий самий, як старий (на випадок перезапуску)
   	  			const { json: oldTomorrowSlotsJson } = getMyScheduleForDate(this.scheduleCache, newTomorrowDate);
                 if (newTomorrowSlotsJson !== oldTomorrowSlotsJson) {
                      this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
                      newScheduleForTomorrowAppeared = true;
-                     this.notifiedTomorrowDates.add(newTomorrowDate);
+                     // --- 💡 ВИПРАВЛЕННЯ: Додаємо в кеш ТІЛЬКИ якщо сповіщаємо ---
+                     if (notifyUsers) {
+                         this.notifiedTomorrowDates.add(newTomorrowDate);
+                     }
                 } else {
                      this.logger.log(`[ScheduleCache] Schedule for TOMORROW (${newTomorrowDate}) exists, but is identical to cache. Suppressing notification.`);
-                     // Додаємо, щоб не перевіряти знову
-                     this.notifiedTomorrowDates.add(newTomorrowDate);
+                     // --- 💡 ВИПРАВЛЕННЯ: Додаємо в кеш ТІЛЬКИ якщо сповіщаємо ---
+                     if (notifyUsers) {
+                        this.notifiedTomorrowDates.add(newTomorrowDate);
+                     }
                 }
   	  		} else {
   	  			this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
@@ -281,6 +288,7 @@ constructor(
   	  this.isFetching = false;
   	}
   }
+  
   /**
    * Головний метод. Отримує прогноз на основі кешованих даних.
    */
