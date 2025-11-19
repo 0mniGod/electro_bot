@@ -47,10 +47,10 @@ export const RESP_NO_CURRENT_INFO = (params: { readonly place: string }) =>
   `Нажаль, наразі інформація щодо наявності світла в ${params.place} відсутня.`;
 
 export const TODAYS_SCHEDULE = (params: {
-  readonly scheduleString?: string; 
+  readonly scheduleString?: string;
 }) =>
   params.scheduleString && params.scheduleString.length > 0
-    ? `\n\n<b>--- Графік на сьогодні ---</b>\n${params.scheduleString}` 
+    ? `\n\n<b>--- Графік на сьогодні ---</b>\n${params.scheduleString}`
     : '';
 
 export const TOMORROWS_SCHEDULE = (params: {
@@ -68,18 +68,18 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
   readonly tomorrowsSchedule?: string;
   readonly schedulePossibleDisableMoment?: Date;
   readonly todaysSchedule?: string;
-  readonly scheduleContextMessage?: string; 
+  readonly scheduleContextMessage?: string;
 }) =>
   `${EMOJ_BULB} Наразі все добре - світло в ${params.place} є!\n\n` +
   `Включення відбулося ${params.when}.\n` +
   `Світло є вже ${params.howLong}.\n` +
-  EXPECTED_DISABLE_MOMENT({ 
+  EXPECTED_DISABLE_MOMENT({
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + 
-  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + 
-  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + 
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) +
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) +
   `\nСлава Україні!`;
 
 export const RESP_CURRENTLY_UNAVAILABLE = (params: {
@@ -89,19 +89,19 @@ export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly tomorrowsSchedule?: string;
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
-  readonly todaysSchedule?: string; 
-  readonly scheduleContextMessage?: string; 
+  readonly todaysSchedule?: string;
+  readonly scheduleContextMessage?: string;
 }) =>
   `${EMOJ_MOON} Нажаль, наразі світла в ${params.place} нема.\n\n` +
   `Вимкнення відбулося ${params.when}.\n` +
   `Світло відсутнє вже ${params.howLong}.\n` +
-  EXPECTED_ENABLE_MOMENT({ 
+  EXPECTED_ENABLE_MOMENT({
     scheduleEnableMoment: params.scheduleEnableMoment,
     schedulePossibleEnableMoment: params.schedulePossibleEnableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + 
-  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + 
-  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + 
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) +
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) +
   `\n${MSG_DISABLED_REGULAR_SUFFIX}`;
 
 export const RESP_SUBSCRIPTION_CREATED = (params: { readonly place: string }) =>
@@ -129,14 +129,18 @@ export const RESP_ENABLED_SHORT = (params: {
   readonly place: string;
   readonly scheduleDisableMoment?: Date;
   readonly schedulePossibleDisableMoment?: Date;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_BULB} ${params.when}\nЮхууу, світло в ${params.place} включили!\n` +
   EXPECTED_DISABLE_MOMENT({
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
   `\nСлава Україні!    `;
 
 export const RESP_DISABLED_SHORT = (params: {
@@ -144,14 +148,18 @@ export const RESP_DISABLED_SHORT = (params: {
   readonly place: string;
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_MOON} ${params.when}\nЙой, світло в ${params.place} вимкнено!\n` +
   EXPECTED_ENABLE_MOMENT({
     scheduleEnableMoment: params.scheduleEnableMoment,
     schedulePossibleEnableMoment: params.schedulePossibleEnableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
   `\n${MSG_DISABLED_REGULAR_SUFFIX}`;
 
 export const RESP_ENABLED_DETAILED = (params: {
@@ -160,7 +168,9 @@ export const RESP_ENABLED_DETAILED = (params: {
   readonly place: string;
   readonly scheduleDisableMoment?: Date;
   readonly schedulePossibleDisableMoment?: Date;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_BULB} ${params.when}\nЮхууу, світло в ${params.place} включили!\n` +
   `Світло було відсутнє ${params.howLong}.\n` +
@@ -168,17 +178,23 @@ export const RESP_ENABLED_DETAILED = (params: {
     scheduleDisableMoment: params.scheduleDisableMoment,
     schedulePossibleDisableMoment: params.schedulePossibleDisableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
   `\nСлава Україні!    `;
 
 export const RESP_ENABLED_SUSPICIOUS = (params: {
   readonly when: string;
   readonly place: string;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_BULB} ${params.when}\nСхоже, що, світло в ${params.place} включили!\n` +
   `Хоча можливо його і не виключали, а це насправді була проблема з Інтернетом ${EMOJ_PERSERVE}.` +
-  `\n${params.scheduleContextMessage || ''}`; // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }); // <--- ДОДАНО
 
 export const RESP_DISABLED_DETAILED = (params: {
   readonly when: string;
@@ -186,25 +202,33 @@ export const RESP_DISABLED_DETAILED = (params: {
   readonly place: string;
   readonly scheduleEnableMoment?: Date;
   readonly schedulePossibleEnableMoment?: Date;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_MOON} ${params.when}\nЙой, світло в ${params.place} вимкнено!\n` +
-  `Ми насолоджувалися світлом ${params.howLong}.\n`+
+  `Ми насолоджувалися світлом ${params.howLong}.\n` +
   EXPECTED_ENABLE_MOMENT({
     scheduleEnableMoment: params.scheduleEnableMoment,
     schedulePossibleEnableMoment: params.schedulePossibleEnableMoment,
   }) +
-  `\n${params.scheduleContextMessage || ''}` + // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
   `\n${MSG_DISABLED_REGULAR_SUFFIX}`;
 
 export const RESP_DISABLED_SUSPICIOUS = (params: {
   readonly when: string;
   readonly place: string;
-  readonly scheduleContextMessage?: string; // <--- ДОДАНО
+  readonly scheduleContextMessage?: string;
+  readonly todaysSchedule?: string; // <--- ДОДАНО
+  readonly tomorrowsSchedule?: string; // <--- ДОДАНО
 }) =>
   `${EMOJ_HALF_MOON} ${params.when}\nКарамба, можливо світло в ${params.place} вимкнено!\n\n` +
   `Хоча це може бути просто проблема з Інтернетом і світло насправді не вимикали ${EMOJ_PERSERVE}.` +
-  `\n${params.scheduleContextMessage || ''}`; // <--- ДОДАНО
+  `\n${params.scheduleContextMessage || ''}` +
+  TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }); // <--- ДОДАНО
 
 // --- (Решта файлу: RESP_PREVIOUS_MONTH_SUMMARY, MSG_DISABLED, EXPECTED_... залишаються без змін) ---
 
@@ -222,38 +246,38 @@ export const RESP_PREVIOUS_MONTH_SUMMARY = (params: {
 export const MSG_DISABLED =
   'Бот відключено адміністратором, зверніться до власника бота.\n';
 export const EXPECTED_ENABLE_MOMENT = (params: {
-  readonly scheduleEnableMoment?: Date;
-  readonly schedulePossibleEnableMoment?: Date;
+  readonly scheduleEnableMoment?: Date;
+  readonly schedulePossibleEnableMoment?: Date;
 }) =>
-  // 1. Пріоритет - ГАРАНТОВАНЕ включення.
-  params.scheduleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
-        params.scheduleEnableMoment,
-        'HH:mm'
-      )}.\n`
-    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
-    : params.schedulePossibleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на можливе включення о ${format(
-        params.schedulePossibleEnableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    // 3. Інакше нічого не показуємо.
-    : '';
+  // 1. Пріоритет - ГАРАНТОВАНЕ включення.
+  params.scheduleEnableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
+      params.scheduleEnableMoment,
+      'HH:mm'
+    )}.\n`
+    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
+    : params.schedulePossibleEnableMoment
+      ? `\nЗгідно графіка Yasno очікуємо на можливе включення о ${format(
+        params.schedulePossibleEnableMoment,
+        'HH:mm'
+      )} (сіра зона).\n`
+      // 3. Інакше нічого не показуємо.
+      : '';
 export const EXPECTED_DISABLE_MOMENT = (params: {
-  readonly scheduleDisableMoment?: Date;
-  readonly schedulePossibleDisableMoment?: Date;
+  readonly scheduleDisableMoment?: Date;
+  readonly schedulePossibleDisableMoment?: Date;
 }) =>
-  // 1. Пріоритет - ГАРАНТОВАНЕ вимкнення.
-  params.scheduleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
-        params.scheduleDisableMoment,
-        'HH:mm'
-      )}.\n`
-    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
-    : params.schedulePossibleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на можливе вимкнення о ${format(
-        params.schedulePossibleDisableMoment,
-        'HH:mm'
-      )} (сіра зона).\n`
-    // 3. Інакше нічого не показуємо.
-    : '';
+  // 1. Пріоритет - ГАРАНТОВАНЕ вимкнення.
+  params.scheduleDisableMoment
+    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
+      params.scheduleDisableMoment,
+      'HH:mm'
+    )}.\n`
+    // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
+    : params.schedulePossibleDisableMoment
+      ? `\nЗгідно графіка Yasno очікуємо на можливе вимкнення о ${format(
+        params.schedulePossibleDisableMoment,
+        'HH:mm'
+      )} (сіра зона).\n`
+      // 3. Інакше нічого не показуємо.
+      : '';

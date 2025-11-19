@@ -56,24 +56,24 @@ const MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES = 30;
 const BULK_NOTIFICATION_DELAY_IN_MS = 50;
 
 const HARDCODED_PLACE: Place = {
-    id: "001", 
-    name: "дома",
-    checkType: 'ping',
-    host: "176.100.14.52", 
-    timezone: "Europe/Kiev",
-    isDisabled: false,
-    disableMonthlyStats: false,
-    scheduleRegionKey: "kyiv", 
-    scheduleQueueKey: "2.1" 
+  id: "001",
+  name: "дома",
+  checkType: 'ping',
+  host: "176.100.14.52",
+  timezone: "Europe/Kiev",
+  isDisabled: false,
+  disableMonthlyStats: false,
+  scheduleRegionKey: "kyiv",
+  scheduleQueueKey: "2.1"
 };
 
 const HARDCODED_BOT: Bot = {
-    id: "bot_001", 
-    placeId: "001",
-    token: process.env.BOT_TOKEN, 
-    botName: "OmniLightBot",
-    isEnabled: true,
-    isPublicallyListed: false
+  id: "bot_001",
+  placeId: "001",
+  token: process.env.BOT_TOKEN,
+  botName: "OmniLightBot",
+  isEnabled: true,
+  isPublicallyListed: false
 };
 
 
@@ -92,22 +92,22 @@ export class NotificationBotService implements OnModuleInit {
   private isRefreshingPlacesAndBots = false;
 
   private subscriberCache: Record<string, number[]> = {};
-  
-constructor(
-  @Inject(forwardRef(() => ElectricityAvailabilityService)) // <-- ВИПРАВЛЕНО
-  private readonly electricityAvailabilityService: ElectricityAvailabilityService,
-  private readonly scheduleCacheService: ScheduleCacheService
-) {
-  this.logger.log('>>> Constructor called'); 
 
-  // Блок availabilityChange$.subscribe() видалено,
-  // оскільки Cron тепер напряму викликає check та handleAvailabilityChange
+  constructor(
+    @Inject(forwardRef(() => ElectricityAvailabilityService)) // <-- ВИПРАВЛЕНО
+    private readonly electricityAvailabilityService: ElectricityAvailabilityService,
+    private readonly scheduleCacheService: ScheduleCacheService
+  ) {
+    this.logger.log('>>> Constructor called');
 
-  this.logger.log('>>> Constructor finished');
-}
+    // Блок availabilityChange$.subscribe() видалено,
+    // оскільки Cron тепер напряму викликає check та handleAvailabilityChange
+
+    this.logger.log('>>> Constructor finished');
+  }
 
   // --- ДОДАНО МЕТОД onModuleInit ---
-// --- ДОДАНО МЕТОД onModuleInit ---
+  // --- ДОДАНО МЕТОД onModuleInit ---
   async onModuleInit(): Promise<void> {
     this.logger.log('>>> ENTERING onModuleInit()'); // Лог входу в метод
     this.logger.log('Starting initial refresh...');
@@ -140,7 +140,7 @@ constructor(
   }
   // ------------------------------------
 
-// Властивість для кешування, щоб не надсилати попередження повторно
+  // Властивість для кешування, щоб не надсилати попередження повторно
   private warnedOutageSlots = new Set<string>(); // Зберігає "timestamp|placeId"
 
   /**
@@ -150,9 +150,9 @@ constructor(
   @Cron('*/5 * * * *') // Кожні 5 хвилин
   async checkUpcomingOutages(): Promise<void> {
     this.logger.log('[WarningCron] Running check for upcoming outages...');
-    
+
     const now = dt_util_mock.now(TZ_KYIV); // Використовуємо наш імітований dt_util
-    
+
     // Очищуємо старі попередження з кешу
     this.warnedOutageSlots.forEach(slotKey => {
       const timestamp = new Date(slotKey.split('|')[0]);
@@ -172,8 +172,8 @@ constructor(
 
     // Перевіряємо, чи існує це місце і чи воно активне
     if (!place || place.isDisabled) {
-        this.logger.debug(`[WarningCron] Place ${PLACE_ID_TO_SCHEDULE} is disabled or not found. Skipping.`);
-        return;
+      this.logger.debug(`[WarningCron] Place ${PLACE_ID_TO_SCHEDULE} is disabled or not found. Skipping.`);
+      return;
     }
 
     try {
@@ -185,19 +185,19 @@ constructor(
 
       // Нас цікавить або гарантоване вимкнення (2), або можливе (0)
       const nextOutageTime = prediction.scheduleDisableMoment || prediction.schedulePossibleDisableMoment;
-      
+
       if (!nextOutageTime) {
         // this.logger.debug(`[WarningCron] No upcoming outages found for ${PLACE_ID_TO_SCHEDULE}.`);
         return; // Графік є, але вимкнень не заплановано
       }
-      
+
       const diffInMinutes = differenceInMinutes(nextOutageTime, now);
-      
+
       // --- Логіка попередження: за 60-55 хвилин до події ---
       if (diffInMinutes >= 55 && diffInMinutes <= 60) {
-        
+
         const slotKey = `${nextOutageTime.toISOString()}|${place.id}`;
-        
+
         // Перевіряємо, чи ми вже не попереджали про цей слот
         if (this.warnedOutageSlots.has(slotKey)) {
           this.logger.debug(`[WarningCron] Already warned about ${slotKey}. Skipping.`);
@@ -206,21 +206,21 @@ constructor(
 
         // Попереджаємо!
         this.logger.log(`[WarningCron] Sending warning for place ${place.id}. Outage at ${nextOutageTime.toISOString()}`);
-        
+
         const timeStr = format(nextOutageTime, 'HH:mm');
         const message = `💡 **Увага!**\n\nЗгідно з графіком, о **${timeStr}** очікується **можливе або гарантоване** відключення світла.\n\n🔋 Не забудьте зарядити ваші пристрої!`;
-        
+
         // Використовуємо кеш підписників
         await this.sendBulkNotificationsToPlace(place.id, message);
-        
+
         // Додаємо в кеш, щоб не повторювати
         this.warnedOutageSlots.add(slotKey);
       }
-      
+
     } catch (error) {
       this.logger.error(`[WarningCron] Error checking warnings for place ${place.id}: ${error}`);
     }
-    
+
     this.logger.log('[WarningCron] Finished check.');
   }
 
@@ -231,7 +231,7 @@ constructor(
    */
   public async sendScrapedNotification(message: string): Promise<void> {
     this.logger.log(`[ScrapedNotify] Sending global schedule update: "${message.substring(0, 50)}..."`);
-    
+
     // Ітеруємо по всіх місцях, для яких є кеш підписників
     for (const placeId in this.subscriberCache) {
       const placeSubscribers = this.subscriberCache[placeId];
@@ -261,31 +261,31 @@ constructor(
     }
 
     this.logger.log(`[BulkNotify] Sending message to ${chatIds.length} cached subscribers for place ${placeId}...`);
-    
+
     let successCount = 0;
     let blockedCount = 0;
     let errorCount = 0;
-    
+
     // Використовуємо HTML, оскільки повідомлення містить форматування
-    const parseMode = 'HTML'; 
+    const parseMode = 'HTML';
     // Проста заміна Markdown-подібного ** на HTML <b>
     const escapedMessage = message
-        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>'); 
-    
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
     for (const chatId of chatIds) {
       try {
         await this.sleep({ ms: BULK_NOTIFICATION_DELAY_IN_MS }); // Невелика затримка
         await botEntry.telegramBot.sendMessage(chatId, escapedMessage, { parse_mode: parseMode });
         successCount++;
       } catch (e: any) {
-        
+
         // --- ПОЧАТОК ЗМІНЕНОГО БЛОКУ CATCH ---
         const errorCode = e?.response?.body?.error_code;
         const errorDesc = e?.response?.body?.description || e?.message || JSON.stringify(e);
 
         // Повертаємо реальну умову (замість "/* ... */")
         if (
-          errorCode === 403 && 
+          errorCode === 403 &&
           (errorDesc.includes('blocked by the user') || errorDesc.includes('user is deactivated'))
         ) {
           // Використовуємо 'placeId' (з параметрів функції), а не 'place.id'
@@ -296,7 +296,7 @@ constructor(
             const index = this.subscriberCache[placeId].indexOf(chatId); // <--- ВИПРАВЛЕНО
             if (index > -1) this.subscriberCache[placeId].splice(index, 1); // <--- ВИПРАВЛЕНО
           } catch (removeError) {
-             this.logger.error(`Failed to remove blocked user ${chatId} from cache for place ${placeId}: ${removeError}`);
+            this.logger.error(`Failed to remove blocked user ${chatId} from cache for place ${placeId}: ${removeError}`);
           }
         } else {
           errorCount++;
@@ -308,7 +308,7 @@ constructor(
   }
 
   // --- КІНЕЦЬ БЛОКУ ---
-  
+
   public async notifyAllPlacesAboutPreviousMonthStats(): Promise<void> {
     const allPlaces = Object.values(this.places);
     this.logger.log(`Starting notifyAllPlacesAboutPreviousMonthStats for ${allPlaces.length} places.`); // Лог
@@ -335,8 +335,8 @@ constructor(
     const { msg, place, telegramBot } = params;
     // Додаємо перевірку на null/undefined
     if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleStartCommand');
-        return;
+      this.logger.error('Missing parameters in handleStartCommand');
+      return;
     }
     this.logger.log(`Handling /start command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
@@ -348,16 +348,16 @@ constructor(
       return;
     }
     try {
-        this.logger.log(`Handling /start message content: ${JSON.stringify(msg)}`); // Додатковий лог
-        const listedBotsMessage = "";
-        await telegramBot.sendMessage(
-          msg.chat.id,
-          RESP_START({ place: place.name, listedBotsMessage }),
-          { parse_mode: 'HTML' }
-        );
-        this.logger.log(`Sent /start response to chat ${msg.chat.id}`); // Лог відправки
+      this.logger.log(`Handling /start message content: ${JSON.stringify(msg)}`); // Додатковий лог
+      const listedBotsMessage = "";
+      await telegramBot.sendMessage(
+        msg.chat.id,
+        RESP_START({ place: place.name, listedBotsMessage }),
+        { parse_mode: 'HTML' }
+      );
+      this.logger.log(`Sent /start response to chat ${msg.chat.id}`); // Лог відправки
     } catch (error) {
-        this.logger.error(`Error in handleStartCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+      this.logger.error(`Error in handleStartCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
     }
   }
 
@@ -370,8 +370,8 @@ constructor(
     const { msg, place, telegramBot } = params;
     // Додаємо перевірку на null/undefined
     if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleCurrentCommand');
-        return;
+      this.logger.error('Missing parameters in handleCurrentCommand');
+      return;
     }
     this.logger.log(`Handling /current command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
@@ -383,40 +383,42 @@ constructor(
       return;
     }
     try {
-        this.logger.log(`Handling /current message content: ${JSON.stringify(msg)}`); // Додатковий лог
-        const [latest] =
-          await this.electricityAvailabilityService.getLatestPlaceAvailability({
-            placeId: place.id,
-            limit: 1,
-          });
-        if (!latest) {
-          this.logger.warn(`No latest availability info found for place ${place.id}`); // Лог
-          await telegramBot.sendMessage(
-            msg.chat.id,
-            RESP_NO_CURRENT_INFO({ place: place.name }),
-            { parse_mode: 'HTML' }
-          );
-          return;
-        }
-        this.logger.log(`Latest availability for place ${place.id}: ${JSON.stringify(latest)}`); // Лог даних
-        const changeTime = convertToTimeZone(latest.time, {
-          timeZone: place.timezone,
+      this.logger.log(`Handling /current message content: ${JSON.stringify(msg)}`); // Додатковий лог
+      const [latest] =
+        await this.electricityAvailabilityService.getLatestPlaceAvailability({
+          placeId: place.id,
+          limit: 1,
         });
-        const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
-        const when = format(changeTime, 'd MMMM о HH:mm', { locale: uk });
-        const howLong = formatDistance(now, changeTime, {
-          locale: uk,
-          includeSeconds: false,
-        });
+      if (!latest) {
+        this.logger.warn(`No latest availability info found for place ${place.id}`); // Лог
+        await telegramBot.sendMessage(
+          msg.chat.id,
+          RESP_NO_CURRENT_INFO({ place: place.name }),
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+      this.logger.log(`Latest availability for place ${place.id}: ${JSON.stringify(latest)}`); // Лог даних
+      const changeTime = convertToTimeZone(latest.time, {
+        timeZone: place.timezone,
+      });
+      const now = convertToTimeZone(new Date(), { timeZone: place.timezone });
+      const when = format(changeTime, 'd MMMM о HH:mm', { locale: uk });
+      const howLong = formatDistance(now, changeTime, {
+        locale: uk,
+        includeSeconds: false,
+      });
 
       let scheduleEnableMoment: Date | undefined;
       let schedulePossibleEnableMoment: Date | undefined;
       let scheduleDisableMoment: Date | undefined;
       let schedulePossibleDisableMoment: Date | undefined;
+      let todaysSchedule: string | undefined; // <--- ДОДАНО
+      let tomorrowsSchedule: string | undefined; // <--- ДОДАНО
 
       // --- Жорстко вказуємо наші ключі ---
       // (Переконайтеся, що "001" - це ID вашого місця "дома")
-      const PLACE_ID_TO_SCHEDULE = "001"; 
+      const PLACE_ID_TO_SCHEDULE = "001";
       const REGION_KEY = "kyiv";
       const QUEUE_KEY = "2.1"; // <--- Або ваша група
 
@@ -424,46 +426,55 @@ constructor(
       if (place.id === PLACE_ID_TO_SCHEDULE) {
         this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
         try {
-            // Викликаємо наш сервіс кешу з "зашитими" ключами
-            const prediction = this.scheduleCacheService.getSchedulePrediction(
-              REGION_KEY,
-              QUEUE_KEY
-            );
-            
-            // Призначаємо отримані значення
-            scheduleEnableMoment = prediction.scheduleEnableMoment;
-            schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
-            scheduleDisableMoment = prediction.scheduleDisableMoment;
-            schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+          // Викликаємо наш сервіс кешу з "зашитими" ключами
+          const prediction = this.scheduleCacheService.getSchedulePrediction(
+            REGION_KEY,
+            QUEUE_KEY
+          );
+
+          // Призначаємо отримані значення
+          scheduleEnableMoment = prediction.scheduleEnableMoment;
+          schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
+          scheduleDisableMoment = prediction.scheduleDisableMoment;
+          schedulePossibleDisableMoment = prediction.schedulePossibleDisableMoment;
+
+          // --- ОТРИМУЄМО ТЕКСТ ГРАФІКІВ ---
+          todaysSchedule = this.scheduleCacheService.getTodaysScheduleAsText(REGION_KEY, QUEUE_KEY);
+          tomorrowsSchedule = this.scheduleCacheService.getTomorrowsScheduleAsText(REGION_KEY, QUEUE_KEY);
+          // --- ------------------------ ---
 
         } catch (scheduleError) {
-             this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
+          this.logger.error(`[Schedule] Failed to get prediction: ${scheduleError}`);
         }
       } else {
-         this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
+        this.logger.debug(`[Schedule] Place ${place.id} is not ${PLACE_ID_TO_SCHEDULE}. Skipping prediction.`);
       }
 
-        const response = latest.is_available
-          ? RESP_CURRENTLY_AVAILABLE({
-              when,
-              howLong,
-              place: place.name,
-              scheduleDisableMoment, // Буде undefined
-              schedulePossibleDisableMoment, // Буде undefined
-            })
-          : RESP_CURRENTLY_UNAVAILABLE({
-              when,
-              howLong,
-              place: place.name,
-              scheduleEnableMoment, // Буде undefined
-              schedulePossibleEnableMoment, // Буде undefined
-            });
-        await telegramBot.sendMessage(msg.chat.id, response, {
-          parse_mode: 'HTML',
+      const response = latest.is_available
+        ? RESP_CURRENTLY_AVAILABLE({
+          when,
+          howLong,
+          place: place.name,
+          scheduleDisableMoment,
+          schedulePossibleDisableMoment,
+          todaysSchedule, // <--- ДОДАНО
+          tomorrowsSchedule, // <--- ДОДАНО
+        })
+        : RESP_CURRENTLY_UNAVAILABLE({
+          when,
+          howLong,
+          place: place.name,
+          scheduleEnableMoment,
+          schedulePossibleEnableMoment,
+          todaysSchedule, // <--- ДОДАНО
+          tomorrowsSchedule, // <--- ДОДАНО
         });
-        this.logger.log(`Sent /current response to chat ${msg.chat.id}`); // Лог відправки
+      await telegramBot.sendMessage(msg.chat.id, response, {
+        parse_mode: 'HTML',
+      });
+      this.logger.log(`Sent /current response to chat ${msg.chat.id}`); // Лог відправки
     } catch (error) {
-        this.logger.error(`Error in handleCurrentCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+      this.logger.error(`Error in handleCurrentCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
     }
   }
 
@@ -476,51 +487,51 @@ constructor(
     const { msg, place, telegramBot } = params;
     // Додаємо перевірку на null/undefined
     if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleSubscribeCommand');
-        return;
+      this.logger.error('Missing parameters in handleSubscribeCommand');
+      return;
     }
     this.logger.log(`Handling /subscribe command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
       this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
       return;
-     }
+    }
     if (place.isDisabled) {
       await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
       return;
-     }
-try {
-    // --- ВИДАЛЕНО saveUserAction ---
-    this.logger.log(`Handling /subscribe message content: ${JSON.stringify(msg)}`); 
-    
-    const chatIdNum = Number(msg.chat.id);
-    let added = false;
-    
-    // --- ЛОГІКА РОБОТИ З КЕШЕМ (ЗАМІСТЬ ЗАПИТУ ДО БД) ---
-    if (!isNaN(chatIdNum)) {
-      if (!this.subscriberCache[place.id]) {
-        this.subscriberCache[place.id] = [];
-      }
-      if (!this.subscriberCache[place.id].includes(chatIdNum)) {
-        this.subscriberCache[place.id].push(chatIdNum);
-        this.logger.log(`[Cache] Added chat ${chatIdNum} to subscriber cache for place ${place.id}`);
-        added = true;
-      } else {
-         this.logger.log(`[Cache] Chat ${chatIdNum} already in cache for place ${place.id}.`);
-         added = false; // Вже існує
-      }
     }
-    // --- -------------------------------------------- ---
+    try {
+      // --- ВИДАЛЕНО saveUserAction ---
+      this.logger.log(`Handling /subscribe message content: ${JSON.stringify(msg)}`);
 
-    const response = added
-      ? RESP_SUBSCRIPTION_CREATED({ place: place.name })
-      : RESP_SUBSCRIPTION_ALREADY_EXISTS({ place: place.name });
-      
-    await telegramBot.sendMessage(msg.chat.id, response, { parse_mode: 'HTML' });
-       
-        this.logger.log(`Sent /subscribe response (added=${added}) to chat ${msg.chat.id}`); // Лог відправки
-     } catch (error) {
-        this.logger.error(`Error in handleSubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-     }
+      const chatIdNum = Number(msg.chat.id);
+      let added = false;
+
+      // --- ЛОГІКА РОБОТИ З КЕШЕМ (ЗАМІСТЬ ЗАПИТУ ДО БД) ---
+      if (!isNaN(chatIdNum)) {
+        if (!this.subscriberCache[place.id]) {
+          this.subscriberCache[place.id] = [];
+        }
+        if (!this.subscriberCache[place.id].includes(chatIdNum)) {
+          this.subscriberCache[place.id].push(chatIdNum);
+          this.logger.log(`[Cache] Added chat ${chatIdNum} to subscriber cache for place ${place.id}`);
+          added = true;
+        } else {
+          this.logger.log(`[Cache] Chat ${chatIdNum} already in cache for place ${place.id}.`);
+          added = false; // Вже існує
+        }
+      }
+      // --- -------------------------------------------- ---
+
+      const response = added
+        ? RESP_SUBSCRIPTION_CREATED({ place: place.name })
+        : RESP_SUBSCRIPTION_ALREADY_EXISTS({ place: place.name });
+
+      await telegramBot.sendMessage(msg.chat.id, response, { parse_mode: 'HTML' });
+
+      this.logger.log(`Sent /subscribe response (added=${added}) to chat ${msg.chat.id}`); // Лог відправки
+    } catch (error) {
+      this.logger.error(`Error in handleSubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+    }
   }
 
   private async handleUnsubscribeCommand(params: {
@@ -530,47 +541,47 @@ try {
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
     const { msg, place, telegramBot } = params;
-     // Додаємо перевірку на null/undefined
+    // Додаємо перевірку на null/undefined
     if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleUnsubscribeCommand');
-        return;
+      this.logger.error('Missing parameters in handleUnsubscribeCommand');
+      return;
     }
     this.logger.log(`Handling /unsubscribe command for chat ${msg.chat.id} in place ${place.id}`); // Лог
     if (this.isGroup({ chatId: msg.chat.id })) {
-       this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
-       return;
-     }
-try {
-    // --- ВИДАЛЕНО saveUserAction ---
-    this.logger.log(`Handling /unsubscribe message content: ${JSON.stringify(msg)}`);
-    
-    const chatIdNum = Number(msg.chat.id);
-    let removed = false;
+      this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
+      return;
+    }
+    try {
+      // --- ВИДАЛЕНО saveUserAction ---
+      this.logger.log(`Handling /unsubscribe message content: ${JSON.stringify(msg)}`);
 
-    // --- ЛОГІКА РОБОТИ З КЕШЕМ (ЗАМІСТЬ ЗАПИТУ ДО БД) ---
-    if (!isNaN(chatIdNum) && this.subscriberCache[place.id]) {
+      const chatIdNum = Number(msg.chat.id);
+      let removed = false;
+
+      // --- ЛОГІКА РОБОТИ З КЕШЕМ (ЗАМІСТЬ ЗАПИТУ ДО БД) ---
+      if (!isNaN(chatIdNum) && this.subscriberCache[place.id]) {
         const index = this.subscriberCache[place.id].indexOf(chatIdNum);
         if (index > -1) {
-            this.subscriberCache[place.id].splice(index, 1);
-            this.logger.log(`[Cache] Removed chat ${chatIdNum} from subscriber cache for place ${place.id}`);
-            removed = true;
+          this.subscriberCache[place.id].splice(index, 1);
+          this.logger.log(`[Cache] Removed chat ${chatIdNum} from subscriber cache for place ${place.id}`);
+          removed = true;
         } else {
-            this.logger.log(`[Cache] Chat ${chatIdNum} not found in cache for place ${place.id}.`);
-            removed = false; // Не був підписаний
+          this.logger.log(`[Cache] Chat ${chatIdNum} not found in cache for place ${place.id}.`);
+          removed = false; // Не був підписаний
         }
-    }
-    // --- -------------------------------------------- ---
+      }
+      // --- -------------------------------------------- ---
 
-    const response = removed
-      ? RESP_UNSUBSCRIBED({ place: place.name })
-      : RESP_WAS_NOT_SUBSCRIBED({ place: place.name });
-      
-    await telegramBot.sendMessage(msg.chat.id, response, { parse_mode: 'HTML' });
-       
-       this.logger.log(`Sent /unsubscribe response (removed=${removed}) to chat ${msg.chat.id}`); // Лог відправки
-     } catch (error) {
-        this.logger.error(`Error in handleUnsubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-     }
+      const response = removed
+        ? RESP_UNSUBSCRIBED({ place: place.name })
+        : RESP_WAS_NOT_SUBSCRIBED({ place: place.name });
+
+      await telegramBot.sendMessage(msg.chat.id, response, { parse_mode: 'HTML' });
+
+      this.logger.log(`Sent /unsubscribe response (removed=${removed}) to chat ${msg.chat.id}`); // Лог відправки
+    } catch (error) {
+      this.logger.error(`Error in handleUnsubscribeCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+    }
   }
 
   // TODO: refactor (make cleaner)
@@ -580,294 +591,294 @@ try {
     readonly bot: Bot;
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
-      const { msg, place, telegramBot } = params;
-      // Додаємо перевірку на null/undefined
-      if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleStatsCommand');
+    const { msg, place, telegramBot } = params;
+    // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+      this.logger.error('Missing parameters in handleStatsCommand');
+      return;
+    }
+    this.logger.log(`Handling /stats command for chat ${msg.chat.id} in place ${place.id}`); // Лог
+    if (this.isGroup({ chatId: msg.chat.id })) {
+      this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
+      return;
+    }
+    if (place.isDisabled) {
+      await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
+      return;
+    }
+    try {
+      this.logger.log(`Handling /stats message content: ${JSON.stringify(msg)}`); // Додатковий лог
+      const stats = await this.electricityAvailabilityService.getTodayAndYesterdayStats({
+        place,
+      });
+      // Перевірка на null/undefined для stats
+      if (!stats || !stats.history) {
+        this.logger.error(`Failed to get stats data for place ${place.id}`);
+        await telegramBot.sendMessage(msg.chat.id, 'Помилка отримання статистики.', { parse_mode: 'HTML' });
         return;
       }
-      this.logger.log(`Handling /stats command for chat ${msg.chat.id} in place ${place.id}`); // Лог
-      if (this.isGroup({ chatId: msg.chat.id })) {
-         this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
-         return;
-       }
-      if (place.isDisabled) {
-        await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
-        return;
-       }
-       try {
-          this.logger.log(`Handling /stats message content: ${JSON.stringify(msg)}`); // Додатковий лог
-          const stats = await this.electricityAvailabilityService.getTodayAndYesterdayStats({
-            place,
-          });
-          // Перевірка на null/undefined для stats
-          if (!stats || !stats.history) {
-              this.logger.error(`Failed to get stats data for place ${place.id}`);
-              await telegramBot.sendMessage(msg.chat.id, 'Помилка отримання статистики.', { parse_mode: 'HTML' });
-              return;
-          }
-          this.logger.log(`Stats data for place ${place.id}: ${JSON.stringify(stats)}`); // Лог статистики
+      this.logger.log(`Stats data for place ${place.id}: ${JSON.stringify(stats)}`); // Лог статистики
 
-          let response = '';
+      let response = '';
 
-          // Вчорашня статистика
-          if (
-            (stats.history.yesterday && // Додано перевірку
-              stats.history.yesterday.length > 1) ||
-            stats.lastStateBeforeYesterday !== undefined
-          ) {
-            response += `${EMOJ_KISS} Вчора:`;
+      // Вчорашня статистика
+      if (
+        (stats.history.yesterday && // Додано перевірку
+          stats.history.yesterday.length > 1) ||
+        stats.lastStateBeforeYesterday !== undefined
+      ) {
+        response += `${EMOJ_KISS} Вчора:`;
 
-            if (
-              stats.history.yesterday && // Додано перевірку
-              stats.history.yesterday.length > 1
-            ) {
-              const yesterday = stats.history.yesterday;
+        if (
+          stats.history.yesterday && // Додано перевірку
+          stats.history.yesterday.length > 1
+        ) {
+          const yesterday = stats.history.yesterday;
 
-              const baseDate = new Date();
-              let baseDatePlusAvailable = new Date();
-              let baseDatePluesUnavailable = new Date();
+          const baseDate = new Date();
+          let baseDatePlusAvailable = new Date();
+          let baseDatePluesUnavailable = new Date();
 
-              yesterday.forEach(({ start, end, isEnabled }, i) => {
-                 // Додаємо перевірку на start/end
-                 if (!start || !end) return;
-                const s =
-                  i === 0
-                    ? convertToTimeZone(start, { timeZone: place.timezone })
-                    : start;
-                const e =
-                  i === yesterday.length - 1
-                    ? convertToTimeZone(end, { timeZone: place.timezone })
-                    : end;
-                // Виправлено: різниця має бути між end та start, і обережно з типами
-                let durationInMinutes = 0;
-                try {
-                   durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
-                } catch (diffError) {
-                   this.logger.error(`Error calculating differenceInMinutes for yesterday stats: ${diffError}`);
-                   return; // Пропускаємо цей запис, якщо дати невалідні
-                }
+          yesterday.forEach(({ start, end, isEnabled }, i) => {
+            // Додаємо перевірку на start/end
+            if (!start || !end) return;
+            const s =
+              i === 0
+                ? convertToTimeZone(start, { timeZone: place.timezone })
+                : start;
+            const e =
+              i === yesterday.length - 1
+                ? convertToTimeZone(end, { timeZone: place.timezone })
+                : end;
+            // Виправлено: різниця має бути між end та start, і обережно з типами
+            let durationInMinutes = 0;
+            try {
+              durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
+            } catch (diffError) {
+              this.logger.error(`Error calculating differenceInMinutes for yesterday stats: ${diffError}`);
+              return; // Пропускаємо цей запис, якщо дати невалідні
+            }
 
 
-                if (isEnabled) {
-                  baseDatePlusAvailable = addMinutes(
-                    baseDatePlusAvailable,
-                    durationInMinutes
-                  );
-                } else {
-                  baseDatePluesUnavailable = addMinutes(
-                    baseDatePluesUnavailable,
-                    durationInMinutes
-                  );
-                }
-              });
-
-              const howLongAvailable = formatDistance(
-                baseDate, // Змінено порядок аргументів для коректного відображення
+            if (isEnabled) {
+              baseDatePlusAvailable = addMinutes(
                 baseDatePlusAvailable,
-                { locale: uk, includeSeconds: false }
+                durationInMinutes
               );
-              const howLongUnavailable = formatDistance(
-                baseDate, // Змінено порядок аргументів
-                baseDatePluesUnavailable,
-                { locale: uk, includeSeconds: false }
-              );
-
-              response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
-
-              yesterday.forEach(({ start, end, isEnabled }, i) => {
-                 // Додаємо перевірку на start/end
-                 if (!start || !end) return;
-                const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
-                const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
-                const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
-                const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
-                  locale: uk,
-                  includeSeconds: false,
-                });
-                const entry =
-                  i === 0
-                    ? `${emoji} до ${e}`
-                    : i === yesterday.length - 1
-                    ? `${emoji} з ${s}`
-                    : `${emoji} ${s}-${e} (${duration})`;
-
-                response = `${response}\n${entry}`;
-              });
             } else {
-              response += stats.lastStateBeforeYesterday
-                ? ' постійно зі світлом'
-                : ' взагалі без світла';
-            }
-          }
-
-          // Сьогоднішня статистика
-          if (
-            (stats.history.today && // Додано перевірку
-             stats.history.today.length > 1) ||
-            stats.lastStateBeforeToday !== undefined
-          ) {
-            if (response.length > 0) {
-              response += '\n\n';
-            }
-            response += `${EMOJ_KISS_HEART} Сьогодні:`;
-
-            if (stats.history.today && stats.history.today.length > 1) { // Додано перевірку
-              const today = stats.history.today;
-
-              const baseDate = new Date();
-              let baseDatePlusAvailable = new Date();
-              let baseDatePluesUnavailable = new Date();
-
-              today.forEach(({ start, end, isEnabled }, i) => {
-                 // Додаємо перевірку на start/end
-                 if (!start || !end) return;
-                const s =
-                  i === 0
-                    ? convertToTimeZone(start, { timeZone: place.timezone })
-                    : start;
-                const e =
-                  i === today.length - 1
-                    ? convertToTimeZone(end, { timeZone: place.timezone })
-                    : end;
-                 // Виправлено: різниця має бути між end та start, і обережно з типами
-                let durationInMinutes = 0;
-                 try {
-                   durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
-                 } catch (diffError) {
-                   this.logger.error(`Error calculating differenceInMinutes for today stats: ${diffError}`);
-                   return; // Пропускаємо цей запис
-                 }
-
-                if (isEnabled) {
-                  baseDatePlusAvailable = addMinutes(
-                    baseDatePlusAvailable,
-                    durationInMinutes
-                  );
-                } else {
-                  baseDatePluesUnavailable = addMinutes(
-                    baseDatePluesUnavailable,
-                    durationInMinutes
-                  );
-                }
-              });
-
-              const howLongAvailable = formatDistance(
-                baseDate, // Змінено порядок аргументів
-                baseDatePlusAvailable,
-                { locale: uk, includeSeconds: false }
-              );
-              const howLongUnavailable = formatDistance(
-                baseDate, // Змінено порядок аргументів
+              baseDatePluesUnavailable = addMinutes(
                 baseDatePluesUnavailable,
-                { locale: uk, includeSeconds: false }
+                durationInMinutes
               );
-
-              response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
-
-              today.forEach(({ start, end, isEnabled }, i) => {
-                 // Додаємо перевірку на start/end
-                 if (!start || !end) return;
-                const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
-                const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
-                const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
-                const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
-                  locale: uk,
-                  includeSeconds: false,
-                });
-                const entry =
-                  i === 0
-                    ? `${emoji} до ${e}`
-                    : i === today.length - 1
-                    ? `${emoji} з ${s}`
-                    : `${emoji} ${s}-${e} (${duration})`;
-
-                response = `${response}\n${entry}`;
-              });
-            } else {
-              response += stats.lastStateBeforeToday
-                ? ' постійно зі світлом'
-                : ' взагалі без світла';
             }
-          }
-
-          if (response === '') {
-            response = 'Наразі інформація відсутня.';
-          }
-
-          response += `\n\n${MSG_DISABLED_REGULAR_SUFFIX}`;
-
-          await telegramBot.sendMessage(msg.chat.id, response, {
-            parse_mode: 'HTML',
           });
-          this.logger.log(`Sent /stats response to chat ${msg.chat.id}`); // Лог відправки
-       } catch (error) {
-          this.logger.error(`Error in handleStatsCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-       }
+
+          const howLongAvailable = formatDistance(
+            baseDate, // Змінено порядок аргументів для коректного відображення
+            baseDatePlusAvailable,
+            { locale: uk, includeSeconds: false }
+          );
+          const howLongUnavailable = formatDistance(
+            baseDate, // Змінено порядок аргументів
+            baseDatePluesUnavailable,
+            { locale: uk, includeSeconds: false }
+          );
+
+          response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
+
+          yesterday.forEach(({ start, end, isEnabled }, i) => {
+            // Додаємо перевірку на start/end
+            if (!start || !end) return;
+            const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
+            const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
+            const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
+            const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
+              locale: uk,
+              includeSeconds: false,
+            });
+            const entry =
+              i === 0
+                ? `${emoji} до ${e}`
+                : i === yesterday.length - 1
+                  ? `${emoji} з ${s}`
+                  : `${emoji} ${s}-${e} (${duration})`;
+
+            response = `${response}\n${entry}`;
+          });
+        } else {
+          response += stats.lastStateBeforeYesterday
+            ? ' постійно зі світлом'
+            : ' взагалі без світла';
+        }
+      }
+
+      // Сьогоднішня статистика
+      if (
+        (stats.history.today && // Додано перевірку
+          stats.history.today.length > 1) ||
+        stats.lastStateBeforeToday !== undefined
+      ) {
+        if (response.length > 0) {
+          response += '\n\n';
+        }
+        response += `${EMOJ_KISS_HEART} Сьогодні:`;
+
+        if (stats.history.today && stats.history.today.length > 1) { // Додано перевірку
+          const today = stats.history.today;
+
+          const baseDate = new Date();
+          let baseDatePlusAvailable = new Date();
+          let baseDatePluesUnavailable = new Date();
+
+          today.forEach(({ start, end, isEnabled }, i) => {
+            // Додаємо перевірку на start/end
+            if (!start || !end) return;
+            const s =
+              i === 0
+                ? convertToTimeZone(start, { timeZone: place.timezone })
+                : start;
+            const e =
+              i === today.length - 1
+                ? convertToTimeZone(end, { timeZone: place.timezone })
+                : end;
+            // Виправлено: різниця має бути між end та start, і обережно з типами
+            let durationInMinutes = 0;
+            try {
+              durationInMinutes = Math.abs(differenceInMinutes(new Date(e), new Date(s)));
+            } catch (diffError) {
+              this.logger.error(`Error calculating differenceInMinutes for today stats: ${diffError}`);
+              return; // Пропускаємо цей запис
+            }
+
+            if (isEnabled) {
+              baseDatePlusAvailable = addMinutes(
+                baseDatePlusAvailable,
+                durationInMinutes
+              );
+            } else {
+              baseDatePluesUnavailable = addMinutes(
+                baseDatePluesUnavailable,
+                durationInMinutes
+              );
+            }
+          });
+
+          const howLongAvailable = formatDistance(
+            baseDate, // Змінено порядок аргументів
+            baseDatePlusAvailable,
+            { locale: uk, includeSeconds: false }
+          );
+          const howLongUnavailable = formatDistance(
+            baseDate, // Змінено порядок аргументів
+            baseDatePluesUnavailable,
+            { locale: uk, includeSeconds: false }
+          );
+
+          response = `${response}\nЗі світлом: ${howLongAvailable}\nБез світла: ${howLongUnavailable}`;
+
+          today.forEach(({ start, end, isEnabled }, i) => {
+            // Додаємо перевірку на start/end
+            if (!start || !end) return;
+            const emoji = isEnabled ? EMOJ_BULB : EMOJ_MOON;
+            const s = format(new Date(start), 'HH:mm', { locale: uk }); // Додано new Date()
+            const e = format(new Date(end), 'HH:mm', { locale: uk });   // Додано new Date()
+            const duration = formatDistance(new Date(end), new Date(start), { // Додано new Date()
+              locale: uk,
+              includeSeconds: false,
+            });
+            const entry =
+              i === 0
+                ? `${emoji} до ${e}`
+                : i === today.length - 1
+                  ? `${emoji} з ${s}`
+                  : `${emoji} ${s}-${e} (${duration})`;
+
+            response = `${response}\n${entry}`;
+          });
+        } else {
+          response += stats.lastStateBeforeToday
+            ? ' постійно зі світлом'
+            : ' взагалі без світла';
+        }
+      }
+
+      if (response === '') {
+        response = 'Наразі інформація відсутня.';
+      }
+
+      response += `\n\n${MSG_DISABLED_REGULAR_SUFFIX}`;
+
+      await telegramBot.sendMessage(msg.chat.id, response, {
+        parse_mode: 'HTML',
+      });
+      this.logger.log(`Sent /stats response to chat ${msg.chat.id}`); // Лог відправки
+    } catch (error) {
+      this.logger.error(`Error in handleStatsCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+    }
   }
   private async composePlaceMonthStatsMessage(params: {
     readonly place: Place;
     readonly dateFromTargetMonth: Date;
   }): Promise<string> {
-      this.logger.log(`Composing monthly stats message for place ${params.place.id}`); // Лог
-      try { // Додано try...catch
-          const monthStats =
-            await this.electricityAvailabilityService.getMonthStats(params);
-          if (!monthStats) {
-            this.logger.warn(`No monthly stats data found for place ${params.place.id}`); // Лог
-            return '';
-          }
-          this.logger.log(`Monthly stats data for place ${params.place.id}: ${JSON.stringify(monthStats)}`); // Лог даних
-
-          const totalMinutes =
-            monthStats.totalMinutesAvailable + monthStats.totalMinutesUnavailable;
-          // Додаємо перевірку на нуль, щоб уникнути ділення на нуль
-          if (totalMinutes === 0) {
-              this.logger.warn(`Total minutes for month stats is zero for place ${params.place.id}`);
-              return '';
-          }
-          const percentAvailable = Math.round( // Використовуємо Math.round для кращого заокруглення
-            (100 * monthStats.totalMinutesAvailable) / totalMinutes
-          );
-          const percentUnavailable = 100 - percentAvailable;
-          const baseDate = convertToTimeZone(new Date(), {
-            timeZone: params.place.timezone,
-          });
-          const baseDatePlusAvailable = addMinutes(
-            baseDate,
-            monthStats.totalMinutesAvailable
-          );
-          const howLongAvailable = formatDistance(baseDate, baseDatePlusAvailable, {
-            locale: uk,
-            includeSeconds: false,
-          });
-          const baseDatePlusUnavailable = addMinutes(
-            baseDate,
-            monthStats.totalMinutesUnavailable
-          );
-          const howLongUnavailable = formatDistance(
-            baseDate,
-            baseDatePlusUnavailable,
-            {
-              locale: uk,
-              includeSeconds: false,
-            }
-          );
-
-          const m = getMonth(params.dateFromTargetMonth);
-          const mn =
-            m === 0 ? 'січні' : m === 1 ? 'лютому' : m === 2 ? 'березні' :
-            m === 3 ? 'квітні' : m === 4 ? 'травні' : m === 5 ? 'червні' :
-            m === 6 ? 'липні' : m === 7 ? 'серпні' : m === 8 ? 'вересні' :
-            m === 9 ? 'жовтні' : m === 10 ? 'листопаді' : 'грудні';
-
-          const result = `У ${mn} ми насолоджувалися світлом ${percentAvailable}% часу (сумарно ${howLongAvailable}) і потерпали від темряви ${percentUnavailable}% часу (сумарно ${howLongUnavailable}).`;
-          this.logger.log(`Composed monthly stats message for place ${params.place.id}: "${result.substring(0,50)}..."`); // Лог результату
-          return result;
-      } catch (error) {
-          this.logger.error(`Error composing monthly stats for place ${params.place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-          return ''; // Повертаємо порожній рядок у разі помилки
+    this.logger.log(`Composing monthly stats message for place ${params.place.id}`); // Лог
+    try { // Додано try...catch
+      const monthStats =
+        await this.electricityAvailabilityService.getMonthStats(params);
+      if (!monthStats) {
+        this.logger.warn(`No monthly stats data found for place ${params.place.id}`); // Лог
+        return '';
       }
+      this.logger.log(`Monthly stats data for place ${params.place.id}: ${JSON.stringify(monthStats)}`); // Лог даних
+
+      const totalMinutes =
+        monthStats.totalMinutesAvailable + monthStats.totalMinutesUnavailable;
+      // Додаємо перевірку на нуль, щоб уникнути ділення на нуль
+      if (totalMinutes === 0) {
+        this.logger.warn(`Total minutes for month stats is zero for place ${params.place.id}`);
+        return '';
+      }
+      const percentAvailable = Math.round( // Використовуємо Math.round для кращого заокруглення
+        (100 * monthStats.totalMinutesAvailable) / totalMinutes
+      );
+      const percentUnavailable = 100 - percentAvailable;
+      const baseDate = convertToTimeZone(new Date(), {
+        timeZone: params.place.timezone,
+      });
+      const baseDatePlusAvailable = addMinutes(
+        baseDate,
+        monthStats.totalMinutesAvailable
+      );
+      const howLongAvailable = formatDistance(baseDate, baseDatePlusAvailable, {
+        locale: uk,
+        includeSeconds: false,
+      });
+      const baseDatePlusUnavailable = addMinutes(
+        baseDate,
+        monthStats.totalMinutesUnavailable
+      );
+      const howLongUnavailable = formatDistance(
+        baseDate,
+        baseDatePlusUnavailable,
+        {
+          locale: uk,
+          includeSeconds: false,
+        }
+      );
+
+      const m = getMonth(params.dateFromTargetMonth);
+      const mn =
+        m === 0 ? 'січні' : m === 1 ? 'лютому' : m === 2 ? 'березні' :
+          m === 3 ? 'квітні' : m === 4 ? 'травні' : m === 5 ? 'червні' :
+            m === 6 ? 'липні' : m === 7 ? 'серпні' : m === 8 ? 'вересні' :
+              m === 9 ? 'жовтні' : m === 10 ? 'листопаді' : 'грудні';
+
+      const result = `У ${mn} ми насолоджувалися світлом ${percentAvailable}% часу (сумарно ${howLongAvailable}) і потерпали від темряви ${percentUnavailable}% часу (сумарно ${howLongUnavailable}).`;
+      this.logger.log(`Composed monthly stats message for place ${params.place.id}: "${result.substring(0, 50)}..."`); // Лог результату
+      return result;
+    } catch (error) {
+      this.logger.error(`Error composing monthly stats for place ${params.place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+      return ''; // Повертаємо порожній рядок у разі помилки
+    }
   }
 
   private async handleAboutCommand(params: {
@@ -876,35 +887,35 @@ try {
     readonly bot: Bot;
     readonly telegramBot: TelegramBot;
   }): Promise<void> {
-      const { msg, place, telegramBot } = params;
-      // Додаємо перевірку на null/undefined
-      if (!msg || !place || !telegramBot) {
-        this.logger.error('Missing parameters in handleAboutCommand');
-        return;
-      }
-      this.logger.log(`Handling /about command for chat ${msg.chat.id} in place ${place.id}`); // Лог
-      if (this.isGroup({ chatId: msg.chat.id })) {
-         this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
-         return;
-       }
-      if (place.isDisabled) {
-        await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
-        return;
-       }
-       try {
-          this.logger.log(`Handling /about message content: ${JSON.stringify(msg)}`); // Додатковий лог
-          const listedBotsMessage = "";
-          await telegramBot.sendMessage(
-              msg.chat.id,
-              RESP_ABOUT({ listedBotsMessage }),
-              {
-                parse_mode: 'HTML',
-              }
-          );
-          this.logger.log(`Sent /about response to chat ${msg.chat.id}`); // Лог відправки
-       } catch (error) {
-          this.logger.error(`Error in handleAboutCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-       }
+    const { msg, place, telegramBot } = params;
+    // Додаємо перевірку на null/undefined
+    if (!msg || !place || !telegramBot) {
+      this.logger.error('Missing parameters in handleAboutCommand');
+      return;
+    }
+    this.logger.log(`Handling /about command for chat ${msg.chat.id} in place ${place.id}`); // Лог
+    if (this.isGroup({ chatId: msg.chat.id })) {
+      this.logger.warn(`Skipping group message: ${JSON.stringify(msg)}`);
+      return;
+    }
+    if (place.isDisabled) {
+      await this.notifyBotDisabled({ chatId: msg.chat.id, telegramBot });
+      return;
+    }
+    try {
+      this.logger.log(`Handling /about message content: ${JSON.stringify(msg)}`); // Додатковий лог
+      const listedBotsMessage = "";
+      await telegramBot.sendMessage(
+        msg.chat.id,
+        RESP_ABOUT({ listedBotsMessage }),
+        {
+          parse_mode: 'HTML',
+        }
+      );
+      this.logger.log(`Sent /about response to chat ${msg.chat.id}`); // Лог відправки
+    } catch (error) {
+      this.logger.error(`Error in handleAboutCommand for chat ${msg.chat.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+    }
   }
 
   public async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
@@ -912,18 +923,18 @@ try {
     readonly msg: string;   // <--- Приймаємо готове повідомлення
   }): Promise<void> {
     const { place, msg } = params;
-    
+
     if (!place || !msg) {
       this.logger.error('notifyAllPlaceSubscribersAboutElectricityAvailabilityChange called with missing params');
       return;
     }
-    
+
     this.logger.log(`Received request to notify subscribers for place ${place.id}`);
-    
+
     // Просто викликаємо інший метод, який працює з кешем
     await this.notifyAllPlaceSubscribers({ place, msg });
   }
-  
+
   // public async notifyAllPlaceSubscribersAboutElectricityAvailabilityChange(params: {
   //   readonly placeId: string;
   // }): Promise<void> {
@@ -970,7 +981,7 @@ try {
 
   //     // Оголошуємо змінну перед блоком
   //     let todaysScheduleString: string | undefined;
-      
+
   //     // Перевіряємо, чи поточне місце - це те, для якого ми знаємо графік
   //     if (place.id === PLACE_ID_TO_SCHEDULE) {
   //       this.logger.debug(`[Schedule] Getting prediction for hardcoded keys: ${REGION_KEY} / ${QUEUE_KEY}`);
@@ -980,7 +991,7 @@ try {
   //             REGION_KEY,
   //             QUEUE_KEY
   //           );
-            
+
   //           scheduleEnableMoment = prediction.scheduleEnableMoment;
   //           schedulePossibleEnableMoment = prediction.schedulePossibleEnableMoment;
   //           scheduleDisableMoment = prediction.scheduleDisableMoment;
@@ -1077,8 +1088,8 @@ try {
     const { place } = params;
     // Додаємо перевірку на null/undefined
     if (!place) {
-        this.logger.error('Missing place parameter in notifyAllPlaceSubscribersAboutPreviousMonthStats');
-        return;
+      this.logger.error('Missing place parameter in notifyAllPlaceSubscribersAboutPreviousMonthStats');
+      return;
     }
     this.logger.log(`Starting notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}`); // Лог
     if (place.isDisabled) {
@@ -1086,25 +1097,25 @@ try {
       return;
     }
     try { // Додано try...catch
-        const dateFromPreviousMonth = addMonths(new Date(), -1);
-        const statsMessage = await this.composePlaceMonthStatsMessage({ place, dateFromTargetMonth: dateFromPreviousMonth });
-        if (!statsMessage) {
-          this.logger.log(
-            `No monthly stats message generated for ${place.name} - skipping subscriber notification`
-          );
-          return;
-        }
-        const response = RESP_PREVIOUS_MONTH_SUMMARY({ statsMessage });
-        // --- ДОДАНО ЛОГУВАННЯ ---
-        this.logger.log(`Prepared monthly stats notification for place ${place.id}: "${response.substring(0, 50)}..."`);
-        // -----------------------
-        await this.sendBulkNotificationsToPlace(place.id, response);
+      const dateFromPreviousMonth = addMonths(new Date(), -1);
+      const statsMessage = await this.composePlaceMonthStatsMessage({ place, dateFromTargetMonth: dateFromPreviousMonth });
+      if (!statsMessage) {
+        this.logger.log(
+          `No monthly stats message generated for ${place.name} - skipping subscriber notification`
+        );
+        return;
+      }
+      const response = RESP_PREVIOUS_MONTH_SUMMARY({ statsMessage });
+      // --- ДОДАНО ЛОГУВАННЯ ---
+      this.logger.log(`Prepared monthly stats notification for place ${place.id}: "${response.substring(0, 50)}..."`);
+      // -----------------------
+      await this.sendBulkNotificationsToPlace(place.id, response);
     } catch (error) {
-        this.logger.error(`Error in notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+      this.logger.error(`Error in notifyAllPlaceSubscribersAboutPreviousMonthStats for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
     }
   }
 
-private async notifyAllPlaceSubscribers(params: {
+  private async notifyAllPlaceSubscribers(params: {
     readonly place: Place;
     readonly msg: string;
   }): Promise<void> {
@@ -1113,24 +1124,24 @@ private async notifyAllPlaceSubscribers(params: {
       this.logger.error('Missing parameters in notifyAllPlaceSubscribers');
       return;
     }
-    
+
     // --- ВИДАЛЕНО ЗАПИТ ДО БД ---
     this.logger.log(`Starting notifyAllPlaceSubscribers for place ${place.id} using cache...`);
     // --- ЗАМІНЕНО НА ЦЕЙ ВИКЛИК ---
     await this.sendBulkNotificationsToPlace(place.id, msg);
     // --- --------------------- ---
   }
-  
+
   private isGroup(params: { readonly chatId: number }): boolean {
     const result = params.chatId < 0;
     // this.logger.debug(`isGroup check for chatId ${params.chatId}: ${result}`); // Розкоментуйте для детального логування
     return result;
   }
 
-/**
-   * ОНОВЛЕНИЙ: Цей метод тепер просто читає хардкод
-   * І НАПОВНЮЄ КЕШ ПІДПИСНИКІВ
-   */
+  /**
+     * ОНОВЛЕНИЙ: Цей метод тепер просто читає хардкод
+     * І НАПОВНЮЄ КЕШ ПІДПИСНИКІВ
+     */
   private async refreshAllPlacesAndBots(): Promise<void> {
     this.logger.log('>>> ENTERING refreshAllPlacesAndBots()');
     if (this.isRefreshingPlacesAndBots) {
@@ -1139,7 +1150,7 @@ private async notifyAllPlaceSubscribers(params: {
     }
     this.isRefreshingPlacesAndBots = true;
     this.logger.log('Starting refreshAllPlacesAndBots from hardcoded config...');
-    
+
     try {
       // --- ВИКОРИСТОВУЄМО ХАРДКОД ЗАМІСТЬ БД ---
       const loadedPlaces = [HARDCODED_PLACE];
@@ -1159,8 +1170,8 @@ private async notifyAllPlaceSubscribers(params: {
       // (Логіка створення/оновлення ботів)
       for (const botConfig of loadedBots) {
         if (!botConfig.isEnabled || !botConfig.token) {
-           this.logger.log(`Bot for place ${botConfig.placeId} is disabled or has no token, skipping.`);
-           continue;
+          this.logger.log(`Bot for place ${botConfig.placeId} is disabled or has no token, skipping.`);
+          continue;
         }
         activePlaceIds.add(botConfig.placeId);
         const place = this.places[botConfig.placeId];
@@ -1170,16 +1181,16 @@ private async notifyAllPlaceSubscribers(params: {
         }
         const existingEntry = this.placeBots[botConfig.placeId];
         if (existingEntry) {
-          if(existingEntry.bot.token !== botConfig.token) {
+          if (existingEntry.bot.token !== botConfig.token) {
             this.logger.warn(`Token changed for place ${place.id}. Recreating bot instance.`);
             // (Логіка зупинки старого бота...)
             try {
-               if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).stopPolling === 'function') {
-                 await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
-               }
-               if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).close === 'function') {
-                   await (existingEntry.telegramBot as any).close().catch(closeError => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
-               }
+              if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).stopPolling === 'function') {
+                await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
+              }
+              if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).close === 'function') {
+                await (existingEntry.telegramBot as any).close().catch(closeError => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
+              }
             } catch (stopError) { this.logger.error(`Error stopping/closing previous instance for place ${place.id}: ${stopError}`); }
             // Створюємо новий
             const createdInstance = this.createBot({ place, bot: botConfig });
@@ -1200,44 +1211,44 @@ private async notifyAllPlaceSubscribers(params: {
           }
         }
       } // кінець for
-      
+
       // (Логіка зупинки видалених ботів)
       for (const placeId in this.placeBots) {
-          if (!activePlaceIds.has(placeId)) {
-             this.logger.warn(`Bot for place ${placeId} seems removed from hardcode. Stopping...`);
-             // (Логіка зупинки...)
-             const instanceToStop = this.placeBots[placeId]?.telegramBot;
-             try {
-                 if (instanceToStop && typeof (instanceToStop as any).stopPolling === 'function') {
-                   await (instanceToStop as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
-                 }
-                 if (instanceToStop && typeof (instanceToStop as any).close === 'function') {
-                   await (instanceToStop as any).close().catch(closeError => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
-                 }
-             } catch (stopError) { this.logger.error(`Error stopping/closing removed/disabled instance for place ${placeId}: ${stopError}`); }
-          }
+        if (!activePlaceIds.has(placeId)) {
+          this.logger.warn(`Bot for place ${placeId} seems removed from hardcode. Stopping...`);
+          // (Логіка зупинки...)
+          const instanceToStop = this.placeBots[placeId]?.telegramBot;
+          try {
+            if (instanceToStop && typeof (instanceToStop as any).stopPolling === 'function') {
+              await (instanceToStop as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
+            }
+            if (instanceToStop && typeof (instanceToStop as any).close === 'function') {
+              await (instanceToStop as any).close().catch(closeError => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
+            }
+          } catch (stopError) { this.logger.error(`Error stopping/closing removed/disabled instance for place ${placeId}: ${stopError}`); }
+        }
       }
 
       this.placeBots = newPlaceBots;
 
       // --- !!! ВАЖЛИВО: ОНОВЛЕННЯ КЕШУ ПІДПИСНИКІВ !!! ---
       if (Object.keys(this.subscriberCache).length === 0) {
-          this.logger.warn('[Cache] Subscriber cache is empty (likely due to restart). Initializing empty cache.');
-          
-          // --- КРОК 2: ДОДАЄМО ВАШ ID В КЕШ ---
-          const YOUR_TELEGRAM_CHAT_ID = 229951457; 
-          // --- ----------------------------- ---
+        this.logger.warn('[Cache] Subscriber cache is empty (likely due to restart). Initializing empty cache.');
 
-          for (const placeId of activePlaceIds) {
-              if (placeId === HARDCODED_PLACE.id) {
-                 this.subscriberCache[placeId] = [YOUR_TELEGRAM_CHAT_ID]; // Додаємо вас
-                 this.logger.log(`[Cache] Hardcoded admin ${YOUR_TELEGRAM_CHAT_ID} to cache for place ${placeId}.`);
-              } else {
-                 this.subscriberCache[placeId] = [];
-              }
+        // --- КРОК 2: ДОДАЄМО ВАШ ID В КЕШ ---
+        const YOUR_TELEGRAM_CHAT_ID = 229951457;
+        // --- ----------------------------- ---
+
+        for (const placeId of activePlaceIds) {
+          if (placeId === HARDCODED_PLACE.id) {
+            this.subscriberCache[placeId] = [YOUR_TELEGRAM_CHAT_ID]; // Додаємо вас
+            this.logger.log(`[Cache] Hardcoded admin ${YOUR_TELEGRAM_CHAT_ID} to cache for place ${placeId}.`);
+          } else {
+            this.subscriberCache[placeId] = [];
           }
+        }
       } else {
-          this.logger.log('[Cache] Subscriber cache already exists in memory. Retaining.');
+        this.logger.log('[Cache] Subscriber cache already exists in memory. Retaining.');
       }
       // --- -------------------------------------------- ---
 
@@ -1259,8 +1270,8 @@ private async notifyAllPlaceSubscribers(params: {
     try {
       this.logger.log(`Attempting to create bot instance for place ${place.id} (${place.name}) with token starting: ${bot.token ? bot.token.substring(0, 10) : 'NO_TOKEN'}...`); // Лог
       if (!bot.token) {
-          this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
-          return undefined;
+        this.logger.error(`Token is missing for bot config of place ${place.id}. Cannot create instance.`);
+        return undefined;
       }
       // Створюємо без polling
       const telegramBot = new TelegramBot(bot.token);
@@ -1268,7 +1279,7 @@ private async notifyAllPlaceSubscribers(params: {
 
       // Обробники подій
       telegramBot.on('polling_error', (error) => { // Все ще корисно для діагностики внутрішніх помилок
-         this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
+        this.logger.error(`${place.name}/${bot.botName} internal polling_error: ${error}`);
       });
       telegramBot.on('webhook_error', (error: any) => { // Додаємо обробник помилок вебхука
         // Безпечно перевіряємо наявність 'code' та 'message'
@@ -1312,128 +1323,128 @@ private async notifyAllPlaceSubscribers(params: {
       });
 
       // --- ДОДАНО НОВИЙ ОБРОБНИК ДЛЯ /update ---
-telegramBot.onText(/\/update/, async (msg) => {
-          const userId = msg.from?.id;
-          const chatId = msg.chat.id;
-          this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
+      telegramBot.onText(/\/update/, async (msg) => {
+        const userId = msg.from?.id;
+        const chatId = msg.chat.id;
+        this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
 
-          // // Опціонально: Перевірка прав адміністратора
-          const ADMIN_USER_ID = "229951457";
+        // // Опціонально: Перевірка прав адміністратора
+        const ADMIN_USER_ID = "229951457";
         if (String(userId) !== ADMIN_USER_ID) { // <--- ПРИБЕРІТЬ ПЕРЕВІРКУ !ADMIN_USER_ID
-        this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
-        try {
-            await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
-        } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
-        return;
-    }
-          // Виконуємо оновлення
+          this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
           try {
-              // --- ЗМІНЕНО ТЕКСТ ---
-              await telegramBot.sendMessage(chatId, '🔄 Запускаю оновлення конфігурацій та внутрішнього кешу...');
-              // --- ---------------- ---
+            await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
+          } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
+          return;
+        }
+        // Виконуємо оновлення
+        try {
+          // --- ЗМІНЕНО ТЕКСТ ---
+          await telegramBot.sendMessage(chatId, '🔄 Запускаю оновлення конфігурацій та внутрішнього кешу...');
+          // --- ---------------- ---
 
-              // Спочатку оновлюємо конфігурації ботів (як і раніше)
-              await this.refreshAllPlacesAndBots();
+          // Спочатку оновлюємо конфігурації ботів (як і раніше)
+          await this.refreshAllPlacesAndBots();
 
-              // --- ДОДАНО ВИКЛИК ОНОВЛЕННЯ КЕШУ СТАНІВ ---
-              await this.electricityAvailabilityService.refreshInternalCache();
-              // --- --------------------------------------- ---
+          // --- ДОДАНО ВИКЛИК ОНОВЛЕННЯ КЕШУ СТАНІВ ---
+          await this.electricityAvailabilityService.refreshInternalCache();
+          // --- --------------------------------------- ---
 
-              // --- ЗМІНЕНО ТЕКСТ ---
-              await telegramBot.sendMessage(chatId, '✅ Оновлення завершено!');
-              // --- ---------------- ---
-              this.logger.log(`/update command processed successfully for place ${place.id}`);
-          } catch (error) {
-              this.logger.error(`Error during /update command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-              try {
-                  // --- ЗМІНЕНО ТЕКСТ ---
-                  await telegramBot.sendMessage(chatId, '❌ Помилка під час оновлення. Перевірте логи.');
-                  // --- ---------------- ---
-              } catch (replyError) { this.logger.error(`Error sending error message for /update: ${replyError}`); }
-          }
+          // --- ЗМІНЕНО ТЕКСТ ---
+          await telegramBot.sendMessage(chatId, '✅ Оновлення завершено!');
+          // --- ---------------- ---
+          this.logger.log(`/update command processed successfully for place ${place.id}`);
+        } catch (error) {
+          this.logger.error(`Error during /update command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+          try {
+            // --- ЗМІНЕНО ТЕКСТ ---
+            await telegramBot.sendMessage(chatId, '❌ Помилка під час оновлення. Перевірте логи.');
+            // --- ---------------- ---
+          } catch (replyError) { this.logger.error(`Error sending error message for /update: ${replyError}`); }
+        }
       });
       // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /update ---
 
       // --- ДОДАЄМО НОВИЙ ОБРОБНИК ДЛЯ /schedule ---
- telegramBot.onText(/\/schedule/, async (msg) => {
-          const userId = msg.from?.id;
-          const chatId = msg.chat.id;
-          this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
+      telegramBot.onText(/\/schedule/, async (msg) => {
+        const userId = msg.from?.id;
+        const chatId = msg.chat.id;
+        this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
 
-          // (Тут ваша перевірка на адміна)
-          // ...
+        // (Тут ваша перевірка на адміна)
+        // ...
 
-          try {
-              await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
-              
-              // 1. Завантажуємо графіки
-              const success = await this.scheduleCacheService.fetchAndCacheSchedules();
+        try {
+          await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
 
-              if (success) {
-                  this.logger.log(`[ScheduleCommand] Fetch successful. Generating schedule text for chat ${chatId}.`);
-                  
-                  // Використовуємо ті самі хардкод-ключі, що й для /current
-                  const PLACE_ID_TO_SCHEDULE = "001"; 
-                  const REGION_KEY = "kyiv";
-                  const QUEUE_KEY = "2.1"; // <--- Або ваша група
-                  
-                  let scheduleTodayString = "<i>Графік на сьогодні не знайдено.</i>";
-                  let scheduleTomorrowString = "<i>Графік на завтра не знайдено.</i>"; // <-- Нова змінна
+          // 1. Завантажуємо графіки
+          const success = await this.scheduleCacheService.fetchAndCacheSchedules();
 
-                  if (place.id === PLACE_ID_TO_SCHEDULE) {
-                      try {
-                          // Отримуємо графік на сьогодні
-                          scheduleTodayString = this.scheduleCacheService.getTodaysScheduleAsText(
-                              REGION_KEY,
-                              QUEUE_KEY
-                          );
-                          // Отримуємо графік на завтра
-                          scheduleTomorrowString = this.scheduleCacheService.getTomorrowsScheduleAsText(
-                              REGION_KEY,
-                              QUEUE_KEY
-                          );
-                      } catch (e) {
-                          this.logger.error(`[ScheduleCommand] Error generating schedule text: ${e}`);
-                          scheduleTodayString = "<i>Помилка при генерації графіка.</i>";
-                          scheduleTomorrowString = "<i>Помилка при генерації графіка.</i>";
-                      }
-                  }
-                  
-                  // 3. Створюємо фінальне повідомлення з обома графіками
-                  const responseMessage = `✅ Графіки успішно оновлено.\n\n` +
-                                        `<b>--- Графік на сьогодні ---</b>\n` +
-                                        `${scheduleTodayString}\n\n` +
-                                        `<b>--- Графік на завтра ---</b>\n` +
-                                        `${scheduleTomorrowString}`;
+          if (success) {
+            this.logger.log(`[ScheduleCommand] Fetch successful. Generating schedule text for chat ${chatId}.`);
 
-                  await telegramBot.sendMessage(chatId, responseMessage, { parse_mode: 'HTML' });
-                  
-                  this.logger.log(`/schedule command processed successfully for place ${place.id}`);
-              } else {
-                  // (Помилка завантаження)
-                  await telegramBot.sendMessage(chatId, '❌ Не вдалося завантажити графіки. API (svitlo-proxy) не відповідає.');
-                  this.logger.warn(`/schedule command FAILED for place ${place.id} (API error).`);
+            // Використовуємо ті самі хардкод-ключі, що й для /current
+            const PLACE_ID_TO_SCHEDULE = "001";
+            const REGION_KEY = "kyiv";
+            const QUEUE_KEY = "2.1"; // <--- Або ваша група
+
+            let scheduleTodayString = "<i>Графік на сьогодні не знайдено.</i>";
+            let scheduleTomorrowString = "<i>Графік на завтра не знайдено.</i>"; // <-- Нова змінна
+
+            if (place.id === PLACE_ID_TO_SCHEDULE) {
+              try {
+                // Отримуємо графік на сьогодні
+                scheduleTodayString = this.scheduleCacheService.getTodaysScheduleAsText(
+                  REGION_KEY,
+                  QUEUE_KEY
+                );
+                // Отримуємо графік на завтра
+                scheduleTomorrowString = this.scheduleCacheService.getTomorrowsScheduleAsText(
+                  REGION_KEY,
+                  QUEUE_KEY
+                );
+              } catch (e) {
+                this.logger.error(`[ScheduleCommand] Error generating schedule text: ${e}`);
+                scheduleTodayString = "<i>Помилка при генерації графіка.</i>";
+                scheduleTomorrowString = "<i>Помилка при генерації графіка.</i>";
               }
-          } catch (error) {
-              this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-              await telegramBot.sendMessage(chatId, '❌ Сталася внутрішня помилка. Перевірте логи.');
+            }
+
+            // 3. Створюємо фінальне повідомлення з обома графіками
+            const responseMessage = `✅ Графіки успішно оновлено.\n\n` +
+              `<b>--- Графік на сьогодні ---</b>\n` +
+              `${scheduleTodayString}\n\n` +
+              `<b>--- Графік на завтра ---</b>\n` +
+              `${scheduleTomorrowString}`;
+
+            await telegramBot.sendMessage(chatId, responseMessage, { parse_mode: 'HTML' });
+
+            this.logger.log(`/schedule command processed successfully for place ${place.id}`);
+          } else {
+            // (Помилка завантаження)
+            await telegramBot.sendMessage(chatId, '❌ Не вдалося завантажити графіки. API (svitlo-proxy) не відповідає.');
+            this.logger.warn(`/schedule command FAILED for place ${place.id} (API error).`);
           }
+        } catch (error) {
+          this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
+          await telegramBot.sendMessage(chatId, '❌ Сталася внутрішня помилка. Перевірте логи.');
+        }
       });
       // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /schedule ---      
 
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
     } catch (error) {
-       this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
-       return undefined; // Повертаємо undefined у разі помилки
+      this.logger.error(`>>> FAILED during new TelegramBot() or attaching listeners for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined); // Лог помилки
+      return undefined; // Повертаємо undefined у разі помилки
     }
   }
-  
+
   public getMainTelegramBotInstance(): TelegramBot | undefined {
     this.logger.log(`getMainTelegramBotInstance called. Current this.placeBots keys: ${JSON.stringify(Object.keys(this.placeBots))}`);
-    
+
     // Оскільки у нас лише один бот, ми можемо взяти його ID з хардкоду
-    const botEntry = this.placeBots[HARDCODED_PLACE.id]; 
+    const botEntry = this.placeBots[HARDCODED_PLACE.id];
 
     if (botEntry && botEntry.bot.isEnabled) {
       this.logger.log(`Found active bot instance for placeId: ${botEntry.bot.placeId}`);
@@ -1450,18 +1461,18 @@ telegramBot.onText(/\/update/, async (msg) => {
     const { chatId, telegramBot } = params;
     // Додаємо перевірку на null/undefined
     if (!chatId || !telegramBot) {
-        this.logger.error('Missing parameters in notifyBotDisabled');
-        return;
+      this.logger.error('Missing parameters in notifyBotDisabled');
+      return;
     }
     try { // Додано try...catch
-        this.logger.log(`Sending MSG_DISABLED to chat ${chatId}`); // Лог
-        await telegramBot.sendMessage(chatId, MSG_DISABLED, { parse_mode: 'HTML' });
+      this.logger.log(`Sending MSG_DISABLED to chat ${chatId}`); // Лог
+      await telegramBot.sendMessage(chatId, MSG_DISABLED, { parse_mode: 'HTML' });
     } catch (error) {
-        this.logger.error(`Error sending MSG_DISABLED to chat ${chatId}: ${error}`); // Лог помилки
+      this.logger.error(`Error sending MSG_DISABLED to chat ${chatId}: ${error}`); // Лог помилки
     }
   }
 
-private async sleep(params: { readonly ms: number }): Promise<void> {
+  private async sleep(params: { readonly ms: number }): Promise<void> {
     if (params?.ms > 0) {
       return new Promise((r) => setTimeout(r, params.ms));
     } else {

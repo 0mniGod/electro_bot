@@ -8,12 +8,12 @@ import { uk } from 'date-fns/locale';
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { NotificationBotService } from '@electrobot/bot';
 import {
-  EMOJ_BULB,         
-  EMOJ_MOON,         
-  EMOJ_CHECK_MARK,   
-  EMOJ_GRAY_Q,  
+  EMOJ_BULB,
+  EMOJ_MOON,
+  EMOJ_CHECK_MARK,
+  EMOJ_GRAY_Q,
   EMOJ_GREEN_CIRCLE,
-  EMOJ_HOURGLASS,    
+  EMOJ_HOURGLASS,
 } from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
@@ -79,15 +79,15 @@ export class ScheduleCacheService implements OnModuleInit {
   private readonly logger = new Logger(ScheduleCacheService.name);
   private scheduleCache: ScheduleCache | null = null;
   private isFetching = false;
-  private lastNotifiedScheduleJSON: string | null = null; 
+  private lastNotifiedScheduleJSON: string | null = null;
   private notifiedTomorrowDates = new Set<string>();
 
-constructor(
+  constructor(
     private readonly httpService: HttpService,
     @Inject(forwardRef(() => NotificationBotService))
     private readonly notificationBotService: NotificationBotService
-  ) {}
-  
+  ) { }
+
   /**
    * Завантажує кеш при старті програми
    */
@@ -96,199 +96,211 @@ constructor(
     await this.fetchAndCacheSchedules();
   }
 
-@Cron('*/30 * * * *') // Раз на 30 хвилин
-  public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
-  	if (this.isFetching) {
-  	  this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
-  	  return false;
-  	}
-  	this.isFetching = true;
-  	this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
+  @Cron('*/30 * * * *') // Раз на 30 хвилин
+  public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
+    if (this.isFetching) {
+      this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
+      return false;
+    }
+    this.isFetching = true;
+    this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
 
-  	// --- 💡 ПОЧАТОК НОВОЇ ЛОГІКИ 💡 ---
-  	// Наші цільові регіон та черга
-  	const MY_REGION_KEY = 'kyiv';
-  	const MY_QUEUE_KEY = '2.1';
+    // --- 💡 ПОЧАТОК НОВОЇ ЛОГІКИ 💡 ---
+    // Наші цільові регіон та черга
+    const MY_REGION_KEY = 'kyiv';
+    const MY_QUEUE_KEY = '2.1';
 
-  	// Допоміжна функція для витягування ТІЛЬКИ НАШОГО графіка
-  	const getMyScheduleForDate = (cache: ScheduleCache | null, date: string): { json: string; hasData: boolean } => {
-  		if (!cache || !cache.regions || !date) return { json: "{}", hasData: false };
+    // Допоміжна функція для витягування ТІЛЬКИ НАШОГО графіка
+    const getMyScheduleForDate = (cache: ScheduleCache | null, date: string): { json: string; hasData: boolean } => {
+      if (!cache || !cache.regions || !date) return { json: "{}", hasData: false };
 
-  		try {
-  			// 1. Знаходимо наш регіон
-  			const region = cache.regions.find(r => r.cpu === MY_REGION_KEY);
-  			if (!region || !region.schedule) return { json: "{}", hasData: false };
+      try {
+        // 1. Знаходимо наш регіон
+        const region = cache.regions.find(r => r.cpu === MY_REGION_KEY);
+        if (!region || !region.schedule) return { json: "{}", hasData: false };
 
-  			// 2. Знаходимо нашу чергу
-  			const queueSchedule = region.schedule[MY_QUEUE_KEY];
-  			if (!queueSchedule || !queueSchedule[date]) return { json: "{}", hasData: false };
+        // 2. Знаходимо нашу чергу
+        const queueSchedule = region.schedule[MY_QUEUE_KEY];
+        if (!queueSchedule || !queueSchedule[date]) return { json: "{}", hasData: false };
 
-  			// 3. Сортуємо ключі ЧАСУ (00:00, 00:30...)
-  			const slots = queueSchedule[date];
-  			const sortedTimeKeys = Object.keys(slots).sort();
-  			
-  			if (sortedTimeKeys.length === 0) {
-  				return { json: "{}", hasData: false };
-  			}
-  			
-            // --- 💡 ВИПРАВЛЕННЯ: "hasData" = true ТІЛЬКИ якщо є '1' або '2' ---
-            let hasRealData = false; 
-  			const stableSlots = {};
-  			for (const timeKey of sortedTimeKeys) {
-                const status = slots[timeKey];
-  				stableSlots[timeKey] = status;
-                if (status === LightStatus.ON || status === LightStatus.OFF) {
-                    hasRealData = true; // Знайшли реальні дані!
+        // 3. Сортуємо ключі ЧАСУ (00:00, 00:30...)
+        const slots = queueSchedule[date];
+        const sortedTimeKeys = Object.keys(slots).sort();
+
+        if (sortedTimeKeys.length === 0) {
+          return { json: "{}", hasData: false };
+        }
+
+        // --- 💡 ВИПРАВЛЕННЯ: "hasData" = true ТІЛЬКИ якщо є '1' або '2' ---
+        let hasRealData = false;
+        const stableSlots = {};
+        for (const timeKey of sortedTimeKeys) {
+          const status = slots[timeKey];
+          stableSlots[timeKey] = status;
+          if (status === LightStatus.ON || status === LightStatus.OFF) {
+            hasRealData = true; // Знайшли реальні дані!
+          }
+        }
+        return { json: JSON.stringify(stableSlots), hasData: hasRealData };
+        // --- 💡 КІНЕЦЬ ВИПРАВЛЕННЯ ---
+
+      } catch (e) {
+        this.logger.error(`[ScheduleCache] Failed to extract ${MY_REGION_KEY}/${MY_QUEUE_KEY} for ${date}`, e);
+        return { json: "{}", hasData: false }; // Повертаємо порожній об'єкт у разі помилки
+      }
+    };
+    // --- 💡 КІНЕЦЬ НОВОЇ ЛОГІКИ 💡 ---
+
+
+    try {
+      const requestOptions = {
+        timeout: 45000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
+          'Accept-Encoding': 'identity'
+        },
+        decompress: false
+      };
+
+      this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
+
+      const response = await firstValueFrom(
+        this.httpService.get<ScheduleCache>(API_URL, requestOptions)
+      );
+
+      this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
+      // this.logger.debug(`[ScheduleCache] Raw response data...`);
+
+      const responseData = response.data;
+
+      if (responseData && responseData.regions) {
+
+        const newTodayDate = responseData.date_today;
+        const newTomorrowDate = responseData.date_tomorrow;
+
+        let todayScheduleHasChanged = false;
+        let newScheduleForTomorrowAppeared = false;
+        let rolledOverDate: string | null = null;
+
+        // 1. Очищуємо старі дати
+        this.notifiedTomorrowDates.forEach(date => {
+          if (date <= newTodayDate) {
+            this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
+            this.notifiedTomorrowDates.delete(date);
+            if (date === newTodayDate) {
+              rolledOverDate = date;
+            }
+          }
+        });
+
+        // 2. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
+        const { json: oldTodaySlotsJson, hasData: oldTodayHasData } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
+        const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
+
+        if (rolledOverDate === newTodayDate) {
+          this.logger.log(`[ScheduleCache] Today's date (${newTodayDate}) just rolled over. Suppressing "Today" change check.`);
+          todayScheduleHasChanged = false;
+        }
+        else if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
+          this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
+          todayScheduleHasChanged = true;
+        } else {
+          this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has NOT changed.`);
+        }
+
+
+        // 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
+        if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
+          const { json: newTomorrowSlotsJson, hasData: newTomorrowHasData } = getMyScheduleForDate(responseData, newTomorrowDate);
+
+          if (newTomorrowHasData) {
+            const { json: oldTomorrowSlotsJson } = getMyScheduleForDate(this.scheduleCache, newTomorrowDate);
+            if (newTomorrowSlotsJson !== oldTomorrowSlotsJson) {
+              this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
+              newScheduleForTomorrowAppeared = true;
+              if (notifyUsers) {
+                this.notifiedTomorrowDates.add(newTomorrowDate);
+              }
+            } else {
+              this.logger.log(`[ScheduleCache] Schedule for TOMORROW (${newTomorrowDate}) exists, but is identical to cache. Suppressing notification.`);
+              if (notifyUsers) {
+                this.notifiedTomorrowDates.add(newTomorrowDate);
+              }
+            }
+          } else {
+            this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
+          }
+        }
+
+        // 4. Зберігаємо НОВІ дані в кеш
+        this.scheduleCache = responseData;
+
+        // 5. Логіка сповіщень
+        if (notifyUsers) {
+          try {
+            const updateMessages: string[] = [];
+
+            if (todayScheduleHasChanged) {
+              const dateTodayStr = format(new Date(newTodayDate), 'dd.MM');
+              const scheduleText = this.getTodaysScheduleAsText(MY_REGION_KEY, MY_QUEUE_KEY);
+
+              let msg = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`;
+
+              // Diff logic
+              if (oldTodayHasData) {
+                const diff = this.generateScheduleDiff(oldTodaySlotsJson, newTodaySlotsJson);
+                if (diff) {
+                  msg += `\n\n**Зміни:**\n${diff}`;
                 }
-  			}
-  			return { json: JSON.stringify(stableSlots), hasData: hasRealData };
-            // --- 💡 КІНЕЦЬ ВИПРАВЛЕННЯ ---
+              }
 
-  		} catch (e) {
-  			this.logger.error(`[ScheduleCache] Failed to extract ${MY_REGION_KEY}/${MY_QUEUE_KEY} for ${date}`, e);
-  			return { json: "{}", hasData: false }; // Повертаємо порожній об'єкт у разі помилки
-  		}
-  	};
-  	// --- 💡 КІНЕЦЬ НОВОЇ ЛОГІКИ 💡 ---
+              msg += `\n\n**Новий графік:**\n${scheduleText}`;
+              updateMessages.push(msg);
+            }
 
+            if (newScheduleForTomorrowAppeared) {
+              const dateTomorrowStr = format(new Date(newTomorrowDate), 'dd.MM');
+              const scheduleText = this.getTomorrowsScheduleAsText(MY_REGION_KEY, MY_QUEUE_KEY);
+              updateMessages.push(`💡 **З'явився графік на завтра (${dateTomorrowStr})!**\n\n${scheduleText}`);
+            }
 
-  	try {
-  	  const requestOptions = {
-  	  	timeout: 45000, 
-  	  	headers: {
-  	  	  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
-  	  	  'Accept-Encoding': 'identity'
-  	  	},
-  	  	decompress: false
-  	  };
-  	  
-  	  this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
+            if (updateMessages.length > 0) {
+              const finalMessage = updateMessages.join('\n\n');
+              this.logger.log(`[ScheduleCache] Sending notification: "${finalMessage}"`);
+              await this.notificationBotService.sendScrapedNotification(finalMessage);
+            } else {
+              this.logger.log('[ScheduleCache] No significant changes found to notify.');
+            }
+          } catch (notifyError) {
+            this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
+          }
+        }
+        return true; // Успіх
 
-  	  const response = await firstValueFrom(
-  	  	this.httpService.get<ScheduleCache>(API_URL, requestOptions)
-  	  );
+      } else {
+        this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
+        return false;
+      }
 
-  	  this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
-  	  this.logger.debug(`[ScheduleCache] Raw response data (first 200 chars): ${JSON.stringify(response.data).substring(0, 200)}...`);
+    } catch (error: any) {
 
-  	  const responseData = response.data; 
+      this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
+      if (error.isAxiosError) {
+        this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
+        this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
+        this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
+        this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
+      } else {
+        this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
+      }
+      this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
+      return false;
 
-  	  if (responseData && responseData.regions) {
-  	  		  
-  	  	const newTodayDate = responseData.date_today;
-  	  	const newTomorrowDate = responseData.date_tomorrow;
+    } finally {
+      this.isFetching = false;
+    }
+  }
 
-  	  	let todayScheduleHasChanged = false;
-  	  	let newScheduleForTomorrowAppeared = false;
-        let rolledOverDate: string | null = null; 
-
-  	  	// 1. Очищуємо старі дати (логіка з минулого разу)
-  	  	this.notifiedTomorrowDates.forEach(date => {
-  	  		if (date <= newTodayDate) { 
-  	  			this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
-  	  			this.notifiedTomorrowDates.delete(date);
-                if (date === newTodayDate) {
-                    rolledOverDate = date; 
-                }
-  	  		}
-  	  	});
-
-  	  	// 2. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
-  	  	const { json: oldTodaySlotsJson } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
-  	  	const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
-  	  	
-  	  	if (rolledOverDate === newTodayDate) {
-  	  		this.logger.log(`[ScheduleCache] Today's date (${newTodayDate}) just rolled over. Suppressing "Today" change check.`);
-  	  		todayScheduleHasChanged = false; // Примусово вимикаємо
-  	  	}
-  	  	else if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
-  	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
-  	  		 todayScheduleHasChanged = true;
-  	  	} else {
-  	  		 this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has NOT changed.`);
-  	  	}
-
-
-  	  	// 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
-  	  	if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
-  	  		const { json: newTomorrowSlotsJson, hasData: newTomorrowHasData } = getMyScheduleForDate(responseData, newTomorrowDate);
-  	  		
-  	  		if (newTomorrowHasData) {
-  	  			const { json: oldTomorrowSlotsJson } = getMyScheduleForDate(this.scheduleCache, newTomorrowDate);
-                if (newTomorrowSlotsJson !== oldTomorrowSlotsJson) {
-                     this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
-                     newScheduleForTomorrowAppeared = true;
-                     // --- 💡 ВИПРАВЛЕННЯ: Додаємо в кеш ТІЛЬКИ якщо сповіщаємо ---
-                     if (notifyUsers) {
-                         this.notifiedTomorrowDates.add(newTomorrowDate);
-                     }
-                } else {
-                     this.logger.log(`[ScheduleCache] Schedule for TOMORROW (${newTomorrowDate}) exists, but is identical to cache. Suppressing notification.`);
-                     // --- 💡 ВИПРАВЛЕННЯ: Додаємо в кеш ТІЛЬКИ якщо сповіщаємо ---
-                     if (notifyUsers) {
-                        this.notifiedTomorrowDates.add(newTomorrowDate);
-                     }
-                }
-  	  		} else {
-  	  			this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
-  	  		}
-  	  	}
-  	  	
-  	  	// 4. Зберігаємо НОВІ дані в кеш (це тепер наша "стара" версія для наступної перевірки)
-  	  	this.scheduleCache = responseData;
-
-  	  	// 5. Логіка сповіщень
-  	  	if (notifyUsers) {
-  	  	  try {
-  	  		const updateMessages: string[] = [];
-  	  		
-  	  		if (todayScheduleHasChanged) {
-  	  			const dateTodayStr = format(new Date(newTodayDate), 'dd.MM');
-  	  			updateMessages.push(`🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`);
-  	  		}
-  	  		  
-  	  		if (newScheduleForTomorrowAppeared) {
-  	  		  const dateTomorrowStr = format(new Date(newTomorrowDate), 'dd.MM');
-  	  		  updateMessages.push(`💡 **З'явився графік на завтра (${dateTomorrowStr})!**`);
-  	  		}
-  	  		  
-  	  		if (updateMessages.length > 0) {
-  	  			const finalMessage = updateMessages.join('\n\n');
-  	  			this.logger.log(`[ScheduleCache] Sending notification: "${finalMessage}"`);
-  	  			await this.notificationBotService.sendScrapedNotification(finalMessage);
-  	  		} else {
-  	  			this.logger.log('[ScheduleCache] No significant changes found to notify.');
-  	  		}
-  	  	  } catch (notifyError) {
-  	  		 	this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
-  	  	  }
-  	  	}
-  	  	return true; // Успіх
-
-  	  } else {
-  	  	this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
-  	  	return false;
-  	  }
-
-  	} catch (error: any) {
-  	  
-  	  this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
-  	  if (error.isAxiosError) {
-  	  	this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
-  	  	this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
-  	  	this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
-  	  	this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
-  	  } else {
-  	  	this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
-  	  }
-  	  this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
-  	  return false;
-
-  	} finally {
-  	  this.isFetching = false;
-  	}
-  }
-  
   /**
    * Головний метод. Отримує прогноз на основі кешованих даних.
    */
@@ -320,22 +332,22 @@ constructor(
       // 4. Отримуємо графіки на сьогодні і завтра
       const slotsToday = schedule[dateTodayStr] || {};
       const slotsTomorrow = schedule[dateTomorrowStr] || {};
-      
+
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
-      
+
       // Знаходимо наступне "ГАРАНТОВАНЕ" ввімкнення/вимкнення
       const nextOn = this.findNextSlot(nowKyiv, dateTodayStr, slotsToday, dateTomorrowStr, slotsTomorrow, [LightStatus.ON]);
       const nextOff = this.findNextSlot(nowKyiv, dateTodayStr, slotsToday, dateTomorrowStr, slotsTomorrow, [LightStatus.OFF]);
-      
+
       // Знаходимо наступне "МОЖЛИВЕ" ввімкнення/вимкнення (сіра зона)
       const nextMaybeOn = this.findNextSlot(nowKyiv, dateTodayStr, slotsToday, dateTomorrowStr, slotsTomorrow, [LightStatus.POSSIBLE]);
       const nextMaybeOff = nextMaybeOn; // У цьому API "можливе" - це один стан (0), він може бути і вкл і викл
 
       return {
-          scheduleEnableMoment: nextOn,
-          schedulePossibleEnableMoment: nextMaybeOn, // Використовуємо "сіру зону" (0)
-          scheduleDisableMoment: nextOff,
-          schedulePossibleDisableMoment: nextMaybeOff, // Використовуємо "сіру зону" (0)
+        scheduleEnableMoment: nextOn,
+        schedulePossibleEnableMoment: nextMaybeOn, // Використовуємо "сіру зону" (0)
+        scheduleDisableMoment: nextOff,
+        schedulePossibleDisableMoment: nextMaybeOff, // Використовуємо "сіру зону" (0)
       };
 
     } catch (error) {
@@ -344,10 +356,10 @@ constructor(
     }
   }
 
-/**
-   * (КРОК 2)
-   * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО v2)
-   */
+  /**
+     * (КРОК 2)
+     * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО v2)
+     */
   public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
@@ -367,7 +379,7 @@ constructor(
 
       const scheduleLines: string[] = [];
       const nowKyiv = dt_util_mock.now(TZ_KYIV);
-      
+
       // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
       const currentHour = nowKyiv.getHours();
       const currentMinute = nowKyiv.getMinutes();
@@ -376,12 +388,12 @@ constructor(
 
       for (let hour = 0; hour < 24; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
-          
+
           const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
           const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
-          
-          let prefixEmoji: string; 
-          let statusEmoji: string; 
+
+          let prefixEmoji: string;
+          let statusEmoji: string;
 
           if (slotStatus === LightStatus.ON) {
             statusEmoji = EMOJ_BULB; // 💡
@@ -390,10 +402,10 @@ constructor(
           } else {
             statusEmoji = EMOJ_GRAY_Q; // ❔
           }
-          
+
           // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
           const slotTotalMinutes = hour * 60 + minute;
-          
+
           // isCurrent: Поточний час знаходиться В ЦЬОМУ 30-хв слоті
           const isCurrent = currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes < (slotTotalMinutes + 30);
           // isPast: Початок слота ВЖЕ МИНУВ
@@ -403,7 +415,7 @@ constructor(
           if (isCurrent) {
             prefixEmoji = EMOJ_GREEN_CIRCLE; // 🟢
           } else if (isPast) {
-            prefixEmoji = '🔙'; 
+            prefixEmoji = '🔙';
           } else {
             prefixEmoji = '🔜';
           }
@@ -412,7 +424,7 @@ constructor(
           scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
         }
       }
-      
+
       return this.compressScheduleText(scheduleLines);
 
     } catch (error) {
@@ -421,172 +433,172 @@ constructor(
     }
   }
 
-/**
-   * Допоміжний метод для об'єднання однакових слотів (ВИПРАВЛЕНА ЛОГІКА v11)
-   */
+  /**
+     * Допоміжний метод для об'єднання однакових слотів (ВИПРАВЛЕНА ЛОГІКА v11)
+     */
   private compressScheduleText(lines: string[]): string {
-      if (lines.length === 0) return '';
-      
-      const compressed: string[] = [];
-      let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
-      
-      for (let i = 1; i < lines.length; i++) {
-          const currentLine = lines[i];
-          
-          const startParts = startLine.split(' '); 
-          const currentParts = currentLine.split(' ');
-          if (startParts.length < 3 || currentParts.length < 3) continue; 
+    if (lines.length === 0) return '';
 
-          const startStatus = startParts[2]; // 💡
-          const currentStatus = currentParts[2]; // 💡
-          const currentPrefix = currentParts[0]; // 🟢
+    const compressed: string[] = [];
+    let startLine = lines[0]; // Приклад: "🔙 00:00: 💡"
 
-          // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v11) !!! ---
-          // Якщо СТАТУС змінився (💡 -> 🌚), ми завершуємо групу
-          if (startStatus !== currentStatus) {
-              
-              const startPrefix = startParts[0]; 
-              const startTime = startParts[1].slice(0, -1);
-              const endTime = currentParts[1].slice(0, -1); // Час початку поточного
-              
-              compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
-              startLine = currentLine; // Починаємо нову групу
+    for (let i = 1; i < lines.length; i++) {
+      const currentLine = lines[i];
 
-          } else {
-              // Статус той самий (🌚 === 🌚).
-              // Перевіряємо, чи не є ПОТОЧНИЙ рядок "поточним" (🟢).
-              if (currentPrefix === EMOJ_GREEN_CIRCLE) {
-                  // "Просуваємо" 🟢 на початок всієї групи
-                  startLine = `${EMOJ_GREEN_CIRCLE} ${startParts[1]} ${startStatus}`;
-              }
-          }
-          // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+      const startParts = startLine.split(' ');
+      const currentParts = currentLine.split(' ');
+      if (startParts.length < 3 || currentParts.length < 3) continue;
+
+      const startStatus = startParts[2]; // 💡
+      const currentStatus = currentParts[2]; // 💡
+      const currentPrefix = currentParts[0]; // 🟢
+
+      // --- !!! ГОЛОВНЕ ВИПРАВЛЕННЯ (v11) !!! ---
+      // Якщо СТАТУС змінився (💡 -> 🌚), ми завершуємо групу
+      if (startStatus !== currentStatus) {
+
+        const startPrefix = startParts[0];
+        const startTime = startParts[1].slice(0, -1);
+        const endTime = currentParts[1].slice(0, -1); // Час початку поточного
+
+        compressed.push(`${startPrefix} ${startTime} - ${endTime} ${startStatus}`);
+        startLine = currentLine; // Починаємо нову групу
+
+      } else {
+        // Статус той самий (🌚 === 🌚).
+        // Перевіряємо, чи не є ПОТОЧНИЙ рядок "поточним" (🟢).
+        if (currentPrefix === EMOJ_GREEN_CIRCLE) {
+          // "Просуваємо" 🟢 на початок всієї групи
+          startLine = `${EMOJ_GREEN_CIRCLE} ${startParts[1]} ${startStatus}`;
+        }
       }
-      
-      // Додаємо останній блок
-      const lastParts = startLine.split(' ');
-      if (lastParts.length < 3) return compressed.join('\n'); 
-
-      const lastPrefix = lastParts[0];
-      const lastStatus = lastParts[2];
-      const lastStartTime = lastParts[1].slice(0, -1); 
-
-      compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
-      
-      return compressed.join('\n');
-  }
-
-public findLastScheduledChange(
-now: Date,
-regionKey: string,
-queueKey: string
-): { time: Date | null, status: LightStatus } {
-
-if (!this.scheduleCache) {
-return { time: null, status: LightStatus.UNKNOWN };
-}
-
-try {
-const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-const schedule = region?.schedule[queueKey];
-const date = this.scheduleCache.date_today;
-const slots = schedule?.[date];
-if (!slots) {
-  return { time: null, status: LightStatus.UNKNOWN };
-}
-
-const allChanges: Array<{ time: Date; status: LightStatus }> = [];
-
-let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
-
-for (let hour = 0; hour < 24; hour++) {
-  for (let minute of [0, 30]) {
-    const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-    const curStatus = slots[key] ?? prevStatus;
-    
-    if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
-      // Кажемо, що час з API - це Київський час (UTC+2)
-      const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
-      allChanges.push({ time: utc, status: curStatus });
+      // --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
     }
 
-    prevStatus = curStatus;
+    // Додаємо останній блок
+    const lastParts = startLine.split(' ');
+    if (lastParts.length < 3) return compressed.join('\n');
+
+    const lastPrefix = lastParts[0];
+    const lastStatus = lastParts[2];
+    const lastStartTime = lastParts[1].slice(0, -1);
+
+    compressed.push(`${lastPrefix} ${lastStartTime} - 00:00 ${lastStatus}`);
+
+    return compressed.join('\n');
   }
-}
 
-let baseUtc = new Date(`${date}T00:00:00.000Z`);
-let baseLocal = convertToTimeZone(baseUtc, { timeZone: TZ_KYIV });
+  public findLastScheduledChange(
+    now: Date,
+    regionKey: string,
+    queueKey: string
+  ): { time: Date | null, status: LightStatus } {
 
-const baseStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
-
-let activeStartTime = baseLocal;
-let activeStatus = baseStatus;
-
-for (const change of allChanges) {
-  if (change.time > now) {
-    break;
-  }
-  activeStartTime = change.time;
-  activeStatus = change.status;
-}
-
-return { time: activeStartTime, status: activeStatus };
-} catch {
-return { time: null, status: LightStatus.UNKNOWN };
-}
-}
-
-public findNextScheduledChange(
-now: Date,
-regionKey: string,
-queueKey: string
-): { time: Date | null, status: LightStatus } {
-
-if (!this.scheduleCache) {
-return { time: null, status: LightStatus.UNKNOWN };
-}
-
-try {
-const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-const schedule = region?.schedule[queueKey];
-const date = this.scheduleCache.date_today;
-const slots = schedule?.[date];
-if (!slots) {
-  return { time: null, status: LightStatus.UNKNOWN };
-}
-
-const allChanges: Array<{ time: Date; status: LightStatus }> = [];
-
-let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
-
-for (let hour = 0; hour < 24; hour++) {
-  for (let minute of [0, 30]) {
-    const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-    const curStatus = slots[key] ?? prevStatus;
-
-    if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
-      // Кажемо, що час з API - це Київський час (UTC+2)
-      const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
-      allChanges.push({ time: utc, status: curStatus });
+    if (!this.scheduleCache) {
+      return { time: null, status: LightStatus.UNKNOWN };
     }
 
-    prevStatus = curStatus;
+    try {
+      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+      const schedule = region?.schedule[queueKey];
+      const date = this.scheduleCache.date_today;
+      const slots = schedule?.[date];
+      if (!slots) {
+        return { time: null, status: LightStatus.UNKNOWN };
+      }
+
+      const allChanges: Array<{ time: Date; status: LightStatus }> = [];
+
+      let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute of [0, 30]) {
+          const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+          const curStatus = slots[key] ?? prevStatus;
+
+          if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
+            // Кажемо, що час з API - це Київський час (UTC+2)
+            const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
+            allChanges.push({ time: utc, status: curStatus });
+          }
+
+          prevStatus = curStatus;
+        }
+      }
+
+      let baseUtc = new Date(`${date}T00:00:00.000Z`);
+      let baseLocal = convertToTimeZone(baseUtc, { timeZone: TZ_KYIV });
+
+      const baseStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+      let activeStartTime = baseLocal;
+      let activeStatus = baseStatus;
+
+      for (const change of allChanges) {
+        if (change.time > now) {
+          break;
+        }
+        activeStartTime = change.time;
+        activeStatus = change.status;
+      }
+
+      return { time: activeStartTime, status: activeStatus };
+    } catch {
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
   }
-}
 
-for (const change of allChanges) {
-  if (change.time > now) {
-    return change;
+  public findNextScheduledChange(
+    now: Date,
+    regionKey: string,
+    queueKey: string
+  ): { time: Date | null, status: LightStatus } {
+
+    if (!this.scheduleCache) {
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
+
+    try {
+      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
+      const schedule = region?.schedule[queueKey];
+      const date = this.scheduleCache.date_today;
+      const slots = schedule?.[date];
+      if (!slots) {
+        return { time: null, status: LightStatus.UNKNOWN };
+      }
+
+      const allChanges: Array<{ time: Date; status: LightStatus }> = [];
+
+      let prevStatus: LightStatus = slots["00:00"] ?? LightStatus.UNKNOWN;
+
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute of [0, 30]) {
+          const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+          const curStatus = slots[key] ?? prevStatus;
+
+          if (!(hour === 0 && minute === 0) && curStatus !== prevStatus) {
+            // Кажемо, що час з API - це Київський час (UTC+2)
+            const utc = new Date(`${date}T${key}:00.000+02:00`); // <--- ВИПРАВЛЕНО
+            allChanges.push({ time: utc, status: curStatus });
+          }
+
+          prevStatus = curStatus;
+        }
+      }
+
+      for (const change of allChanges) {
+        if (change.time > now) {
+          return change;
+        }
+      }
+
+      return { time: null, status: LightStatus.UNKNOWN };
+    } catch {
+      return { time: null, status: LightStatus.UNKNOWN };
+    }
   }
-}
 
-return { time: null, status: LightStatus.UNKNOWN };
-} catch {
-return { time: null, status: LightStatus.UNKNOWN };
-}
-}
 
-  
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
     if (!this.scheduleCache) {
       this.logger.warn('[ScheduleText] Schedule cache is empty.');
@@ -597,11 +609,11 @@ return { time: null, status: LightStatus.UNKNOWN };
       const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
       const schedule = region?.schedule[queueKey];
       const dateTomorrowStr = this.scheduleCache.date_tomorrow;
-      
+
       if (!dateTomorrowStr) {
-           return '<i>Дані на завтра ще не опубліковано.</i>';
+        return '<i>Дані на завтра ще не опубліковано.</i>';
       }
-      
+
       const slotsTomorrow = schedule ? schedule[dateTomorrowStr] : null;
 
       if (!slotsTomorrow) {
@@ -611,14 +623,14 @@ return { time: null, status: LightStatus.UNKNOWN };
 
       const scheduleLines: string[] = [];
       // "Завтра" - це завжди "майбутнє", тому префікс один для всіх
-      const prefixEmoji = '🔜'; 
+      const prefixEmoji = '🔜';
 
       for (let hour = 0; hour < 24; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
-          
+
           const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
           const slotStatus: LightStatus = slotsTomorrow[timeStr] ?? LightStatus.UNKNOWN;
-          
+
           let statusEmoji: string;
 
           if (slotStatus === LightStatus.ON) {
@@ -628,12 +640,12 @@ return { time: null, status: LightStatus.UNKNOWN };
           } else {
             statusEmoji = EMOJ_GRAY_Q; // ❔
           }
-          
+
           // Форматуємо рядок: 🔜 00:00: 💡
           scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
         }
       }
-      
+
       // Використовуємо той самий компресор
       return this.compressScheduleText(scheduleLines);
 
@@ -642,9 +654,9 @@ return { time: null, status: LightStatus.UNKNOWN };
       return '<i>Помилка при обробці графіка на завтра.</i>';
     }
   }
-  
+
   /**
-   * Допоміжний метод для пошуку наступного слоту
+   * Допоміжний метод для пошуку наступного слоту (ОНОВЛЕНО: шукає майбутню зміну стану)
    */
   private findNextSlot(
     now: Date,
@@ -660,30 +672,131 @@ return { time: null, status: LightStatus.UNKNOWN };
 
     // Знаходимо поточний 30-хвилинний слот
     const currentSlotTime = startOfHalfHour(now);
-    
+
     // Перебираємо наступні 48 годин (96 слотів)
     for (let i = 0; i < 96; i++) {
-        const slotTime = addMinutes(currentSlotTime, i * 30);
-        const slotDateStr = format(slotTime, 'yyyy-MM-dd');
-        const slotTimeStr = format(slotTime, 'HH:mm');
+      const slotTime = addMinutes(currentSlotTime, i * 30);
 
-        let status: LightStatus;
-        
-        if (slotDateStr === todayDateStr && todaySlots[slotTimeStr] !== undefined) {
-            status = todaySlots[slotTimeStr];
-        } else if (slotDateStr === tomorrowDateStr && tomorrowSlots[slotTimeStr] !== undefined) {
-            status = tomorrowSlots[slotTimeStr];
-        } else {
-            continue; // Даних за цей слот немає
+      // Пропускаємо слоти, які вже минули (або це поточний слот)
+      // Ми шукаємо ПОДІЮ в майбутньому.
+      if (slotTime <= now) {
+        continue;
+      }
+
+      const slotDateStr = format(slotTime, 'yyyy-MM-dd');
+      const slotTimeStr = format(slotTime, 'HH:mm');
+
+      let status: LightStatus;
+
+      if (slotDateStr === todayDateStr && todaySlots[slotTimeStr] !== undefined) {
+        status = todaySlots[slotTimeStr];
+      } else if (slotDateStr === tomorrowDateStr && tomorrowSlots[slotTimeStr] !== undefined) {
+        status = tomorrowSlots[slotTimeStr];
+      } else {
+        continue; // Даних за цей слот немає
+      }
+
+      // Перевіряємо, чи цей слот є тим, що ми шукаємо
+      if (targetStates.includes(status)) {
+
+        // ДОДАТКОВА ПЕРЕВІРКА:
+        // Ми хочемо знайти ПОЧАТОК періоду.
+        // Тобто попередній слот має бути ІНШОГО стану.
+        // Або це має бути перший слот, який ми перевіряємо (але ми вже пропустили минулі).
+
+        const prevSlotTime = addMinutes(slotTime, -30);
+        const prevSlotDateStr = format(prevSlotTime, 'yyyy-MM-dd');
+        const prevSlotTimeStr = format(prevSlotTime, 'HH:mm');
+
+        let prevStatus: LightStatus = LightStatus.UNKNOWN;
+        if (prevSlotDateStr === todayDateStr && todaySlots[prevSlotTimeStr] !== undefined) {
+          prevStatus = todaySlots[prevSlotTimeStr];
+        } else if (prevSlotDateStr === tomorrowDateStr && tomorrowSlots[prevSlotTimeStr] !== undefined) {
+          prevStatus = tomorrowSlots[prevSlotTimeStr];
         }
 
-        // Перевіряємо, чи цей слот є тим, що ми шукаємо
-        if (targetStates.includes(status)) {
-            // Знайшли! Повертаємо час початку цього слоту
-            return slotTime;
+        // Якщо попередній статус ТАКИЙ САМИЙ, як поточний -> це не початок періоду, це його продовження.
+        // Ми пропускаємо це, бо нам потрібен саме МОМЕНТ ПЕРЕМИКАННЯ.
+        // (Хіба що ми хочемо знайти "найближчий слот з таким станом", але для сповіщення "очікуємо вимкнення о..."
+        // логічніше давати час ПОЧАТКУ вимкнення).
+
+        if (prevStatus !== status) {
+          return slotTime;
         }
+      }
     }
 
     return undefined; // Не знайдено
+  }
+
+  /**
+   * Генерує текстовий опис змін між двома графіками
+   */
+  private generateScheduleDiff(oldJson: string, newJson: string): string {
+    try {
+      const oldSlots = JSON.parse(oldJson) as Record<string, number>;
+      const newSlots = JSON.parse(newJson) as Record<string, number>;
+
+      const changes: string[] = [];
+      // Сортуємо ключі (00:00, 00:30...)
+      const keys = Object.keys(newSlots).sort();
+
+      let currentChangeStart: string | null = null;
+      let currentChangeOldStatus: number | null = null;
+      let currentChangeNewStatus: number | null = null;
+
+      for (let i = 0; i < keys.length; i++) {
+        const time = keys[i];
+        const oldS = oldSlots[time];
+        const newS = newSlots[time];
+
+        // Якщо статус змінився
+        if (oldS !== newS) {
+          if (currentChangeStart === null) {
+            // Початок блоку змін
+            currentChangeStart = time;
+            currentChangeOldStatus = oldS;
+            currentChangeNewStatus = newS;
+          } else {
+            // Перевіряємо, чи продовжується той самий тип зміни
+            if (oldS === currentChangeOldStatus && newS === currentChangeNewStatus) {
+              // Продовжуємо блок
+            } else {
+              // Закриваємо попередній блок
+              changes.push(this.formatDiffBlock(currentChangeStart, time, currentChangeOldStatus!, currentChangeNewStatus!));
+              // Починаємо новий
+              currentChangeStart = time;
+              currentChangeOldStatus = oldS;
+              currentChangeNewStatus = newS;
+            }
+          }
+        } else {
+          // Статус НЕ змінився. Якщо був відкритий блок змін - закриваємо його.
+          if (currentChangeStart !== null) {
+            changes.push(this.formatDiffBlock(currentChangeStart, time, currentChangeOldStatus!, currentChangeNewStatus!));
+            currentChangeStart = null;
+          }
+        }
+      }
+
+      // Якщо блок змін залишився відкритим до кінця дня
+      if (currentChangeStart !== null) {
+        changes.push(this.formatDiffBlock(currentChangeStart, "00:00", currentChangeOldStatus!, currentChangeNewStatus!));
+      }
+
+      return changes.join('\n');
+    } catch (e) {
+      this.logger.error(`Error generating diff: ${e}`);
+      return '';
+    }
+  }
+
+  private formatDiffBlock(start: string, end: string, oldS: number, newS: number): string {
+    const getEmoji = (s: number) => {
+      if (s === LightStatus.ON) return EMOJ_BULB;
+      if (s === LightStatus.OFF) return EMOJ_MOON;
+      return EMOJ_GRAY_Q;
+    };
+    return `${start}-${end}: ${getEmoji(oldS)} ➔ ${getEmoji(newS)}`;
   }
 }

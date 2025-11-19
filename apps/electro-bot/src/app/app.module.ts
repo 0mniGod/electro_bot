@@ -1,24 +1,14 @@
 import { BotModule } from '@electrobot/bot';
 import { ElectricityAvailabilityModule } from '@electrobot/electricity-availability';
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule'; // <-- РОЗКОМЕНТОВАНО
-import { KnexModule } from 'nestjs-knex';
-import { CronService } from './cron.service';
-// KyivElectricScheduleModule видалено з імпортів
+import { ScheduleModule } from '@nestjs/schedule';
 
-@Module({ 
+@Module({
   imports: [
     ElectricityAvailabilityModule,
     BotModule,
-    ScheduleModule.forRoot(), // <-- РОЗКОМЕНТОВАНО
-    // KyivElectricScheduleModule видалено зі списку imports
-    KnexModule.forRoot({
-      config: {
-        client: 'pg',
-        connection: process.env.DATABASE_URL + '?ssl=true', // Додано ?ssl=true
-      },
-    }),
+    ScheduleModule.forRoot(),
   ],
-  providers: [CronService],
+  providers: [],
 })
-export class AppModule {}
+export class AppModule { }
