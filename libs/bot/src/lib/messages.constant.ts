@@ -58,7 +58,7 @@ export const TOMORROWS_SCHEDULE = (params: {
 }) =>
   params.scheduleString && params.scheduleString.length > 0
     ? `\n\n<b>--- Графік на завтра ---</b>\n${params.scheduleString}`
-    : '\n\n<b>--- Графік на завтра ---</b>\n<i>Дані ще не опубліковано.</i>';
+    : '';
 
 export const RESP_CURRENTLY_AVAILABLE = (params: {
   readonly when: string;
