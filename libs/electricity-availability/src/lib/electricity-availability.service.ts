@@ -606,8 +606,8 @@ export class ElectricityAvailabilityService implements OnModuleInit {
 
         if (!previous) {
           response = latest.is_available
-            ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage, todaysSchedule, tomorrowsSchedule })
-            : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage, todaysSchedule, tomorrowsSchedule });
+            ? RESP_ENABLED_SHORT({ when, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage })
+            : RESP_DISABLED_SHORT({ when, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage });
         } else {
           // const previousTime = convertToTimeZone(previous.time, { timeZone: place.timezone }); // <--- Цей рядок більше не потрібен
           const howLong = formatDistance(latest.time, previous.time, { locale: uk, includeSeconds: false }); // <--- ВИПРАВЛЕНО
@@ -616,13 +616,13 @@ export class ElectricityAvailabilityService implements OnModuleInit {
           if (latest.is_available) {
             response =
               diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-                ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage, todaysSchedule, tomorrowsSchedule })
-                : RESP_ENABLED_DETAILED({ when, howLong, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage, todaysSchedule, tomorrowsSchedule });
+                ? RESP_ENABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage })
+                : RESP_ENABLED_DETAILED({ when, howLong, place: place.name, scheduleDisableMoment, schedulePossibleDisableMoment, scheduleContextMessage });
           } else {
             response =
               diffInMinutes <= MIN_SUSPICIOUS_DISABLE_TIME_IN_MINUTES
-                ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage, todaysSchedule, tomorrowsSchedule })
-                : RESP_DISABLED_DETAILED({ when, howLong, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage, todaysSchedule, tomorrowsSchedule });
+                ? RESP_DISABLED_SUSPICIOUS({ when, place: place.name, scheduleContextMessage })
+                : RESP_DISABLED_DETAILED({ when, howLong, place: place.name, scheduleEnableMoment, schedulePossibleEnableMoment, scheduleContextMessage });
           }
         }
 
