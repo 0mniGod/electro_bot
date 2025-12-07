@@ -289,6 +289,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
   /**
    * Cервіс A: Перевірка через ViewDNS (це ваш старий код, перенесений сюди)
    */
+
   private async checkViaViewDNS(host: string): Promise<boolean | null> {
     const url = `https://api.viewdns.info/ping/v2/?host=${host}&apikey=${API_KEY}&output=json`;
     this.logger.verbose(`Starting PING check for ${host} via ViewDNS API...`);
@@ -297,7 +298,12 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       const response = await firstValueFrom(
         this.httpService.get(url, {
           timeout: 15000,
-          headers: { 'User-Agent': 'Koyeb Electro Bot Check' }
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'identity', // Вимикаємо стиснення, щоб уникнути помилок розпакування
+            'Connection': 'keep-alive'
+          }
         })
       );
 
@@ -323,14 +329,15 @@ export class ElectricityAvailabilityService implements OnModuleInit {
           return null; // Невідомо
         }
       } else {
-        this.logger.error(`PING check via ViewDNS API failed (Invalid JSON response).`);
+        this.logger.warn(`PING check via ViewDNS API failed (Invalid JSON response).`);
         return null;
       }
     } catch (error: any) {
       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.response?.status === 504) {
         this.logger.warn(`PING check via ViewDNS API timed out for ${host}.`);
       } else {
-        this.logger.error(`PING check via ViewDNS API failed (HTTP Error) for ${host}. Error: ${error.message}`);
+        // Downgrade to WARN to reduce noise for known flakiness
+        this.logger.warn(`PING check via ViewDNS API failed (HTTP Error) for ${host}. Error: ${error.message}`);
       }
       return null;
     }
