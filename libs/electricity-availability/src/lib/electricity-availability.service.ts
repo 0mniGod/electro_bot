@@ -147,8 +147,8 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     readonly place: Place;
     readonly isAvailable: boolean | null;
   }> {
-    const retries = 5; // 5 спроби
-    const delay = 10000; // 10 секунд між спробами
+    const retries = 3; // 3 спроби (оптимізовано для 4хв інтервалу)
+    const delay = 5000; // 5 секунд між спробами
 
     let lastCurrentAvailability: boolean | null = null;
 
@@ -212,8 +212,8 @@ export class ElectricityAvailabilityService implements OnModuleInit {
 
     // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
-    const maxAttempts = 10; // ЗБІЛЬШЕНО до 10 attempts
-    const pollInterval = 6000; // 6 секунд
+    const maxAttempts = 10; // 10 attempts
+    const pollInterval = 5000; // 5 секунд (трохи швидше)
 
     for (let i = 1; i <= maxAttempts; i++) {
       await this.sleep(pollInterval);
@@ -380,7 +380,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
   /**
    * Cron Job (без змін, використовує кеш)
    */
-  @Cron('*/3 * * * *', { name: 'check-electricity-availability' })
+  @Cron('*/4 * * * *', { name: 'check-electricity-availability' })
   public async checkAndSaveElectricityAvailabilityStateOfAllPlaces(): Promise<void> {
     if (ElectricityAvailabilityService.isCronRunning) {
       this.logger.warn('Cron job "check-electricity-availability" is already running. Skipping this run.');
