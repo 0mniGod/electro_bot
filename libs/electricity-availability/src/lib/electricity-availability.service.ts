@@ -277,41 +277,13 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       // 2c. Тест ще триває (null або не всі вузли)
       if (i < maxAttempts) {
         this.logger.verbose(`[CheckHost] Results not complete on attempt ${i}. Continuing poll...`);
-        // 3. (Провал) Ми вийшли з циклу (пройшли всі спроби)
-        this.logger.error(`[CheckHost] FAILED: Polling timed out. Returning NULL (Indeterminate).`);
-        return null; // <--- ЗМІНА: Повертаємо null при таймауті
       }
-
-  // --- Service 3: Direct HTTP Check (Port 80) ---
-  // Unlike ICMP Ping, this uses standard HTTP protocol which is allowed on almost all servers.
-  // It effectively checks if the home router's web interface (or port forward) is responding.
-  private async checkViaDirectHttp(host: string): Promise<boolean | null> {
-    const url = `http://${host}`;
-    this.logger.verbose(`[DirectHTTP] Starting HTTP check for ${url}...`);
-
-    try {
-      // We don't care about the content, just if we can connect.
-      // Many routers return 401/403 for external access, which implies they are ONLINE.
-      // A timeout means offline.
-      await firstValueFrom(
-        this.httpService.get(url, {
-          timeout: 4000, // 4 seconds timeout
-          headers: { 'User-Agent': 'ElectroBotConnectivityCheck/1.0' },
-          validateStatus: () => true // Resolve promise for ANY status code (200, 401, 403, 500 etc)
-        })
-      );
-      this.logger.debug(`[DirectHTTP] Success (Host responded).`);
-      return true;
-    } catch (error: any) {
-      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-        this.logger.warn(`[DirectHTTP] Timed out.`);
-        return null;
-      }
-      this.logger.debug(`[DirectHTTP] Failed: ${error.message}`);
-      return false;
     }
-  }
 
+    // 3. (Провал) Ми вийшли з циклу (пройшли всі спроби)
+    this.logger.error(`[CheckHost] FAILED: Polling timed out. Returning NULL (Indeterminate).`);
+    return null; // <--- ЗМІНА: Повертаємо null при таймауті
+  }
 
   /**
    * Cервіс A: Перевірка через ViewDNS (це ваш старий код, перенесений сюди)
@@ -371,14 +343,14 @@ export class ElectricityAvailabilityService implements OnModuleInit {
   }
 
   /**
-   * Головний метод check, який тепер викликає A, B і C
+   * Головний метод check, який тепер викликає A і B
    */
   private async check(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean | null;
   }> {
     const host = place.host;
-    this.logger.verbose(`Starting TRIPLE check for ${host}... (ViewDNS + CheckHost + DirectHTTP)`);
+    this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + CheckHost)`);
 
     // Helper to reflect promise state (shim (polyfill) for Promise.allSettled)
     const reflect = (p: Promise<boolean | null>) =>
@@ -388,32 +360,30 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     // Запускаємо перевірки паралельно
     const results = await Promise.all([
       reflect(this.checkViaViewDNS(host)),
-      reflect(this.checkViaCheckHost(host)),
-      reflect(this.checkViaDirectHttp(host))
+      reflect(this.checkViaCheckHost(host))
     ]);
 
     const viewDNSResult = results[0].status === 'fulfilled' ? results[0].value : null;
     const checkHostResult = results[1].status === 'fulfilled' ? results[1].value : null;
-    const directHttpResult = results[2].status === 'fulfilled' ? results[2].value : null;
 
     this.logger.log(
-      `Check results: ViewDNS=${viewDNSResult}, CheckHost=${checkHostResult}, DirectHTTP=${directHttpResult}`
+      `Check results: ViewDNS=${viewDNSResult}, CheckHost=${checkHostResult}`
     );
 
     // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
-    if (viewDNSResult === true || checkHostResult === true || directHttpResult === true) {
-      this.logger.log(`TRIPLE check SUCCESS for ${host}`);
+    if (viewDNSResult === true || checkHostResult === true) {
+      this.logger.log(`DUAL check SUCCESS for ${host}`);
       return { place, isAvailable: true };
     }
 
     // Якщо ВСІ null -> null
-    if (viewDNSResult === null && checkHostResult === null && directHttpResult === null) {
-      this.logger.warn(`TRIPLE check INCONCLUSIVE for ${host} (All services failed/timed out).`);
+    if (viewDNSResult === null && checkHostResult === null) {
+      this.logger.warn(`DUAL check INCONCLUSIVE for ${host} (All services failed/timed out).`);
       return { place, isAvailable: null };
     }
 
     // В інших випадках -> false
-    this.logger.warn(`TRIPLE check FAILED for ${host}`);
+    this.logger.warn(`DUAL check FAILED for ${host}`);
     return { place, isAvailable: false };
   }
 
