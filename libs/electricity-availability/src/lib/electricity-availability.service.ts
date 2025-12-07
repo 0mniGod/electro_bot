@@ -145,19 +145,22 @@ export class ElectricityAvailabilityService implements OnModuleInit {
   // --- НОВИЙ МЕТОД З ПОВТОРНИМИ СПРОБАМИ ---
   private async checkWithRetries(place: Place): Promise<{
     readonly place: Place;
-    readonly isAvailable: boolean;
+    readonly isAvailable: boolean | null;
   }> {
     const retries = 5; // 5 спроби
     const delay = 10000; // 10 секунд між спробами
+
+    let lastCurrentAvailability: boolean | null = null;
 
     for (let i = 1; i <= retries; i++) {
       this.logger.verbose(`Check attempt ${i}/${retries} for ${place.host}`);
       const { isAvailable } = await this.check(place);
 
-      if (isAvailable) {
+      if (isAvailable === true) {
         // Успіх
         return { place, isAvailable: true };
       }
+      lastCurrentAvailability = isAvailable;
 
       if (i < retries) {
         this.logger.warn(`Check attempt ${i} failed. Retrying in ${delay / 1000}s...`);
@@ -165,16 +168,16 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       }
     }
 
-    // Якщо всі 3 спроби не вдалися
-    this.logger.warn(`All ${retries} check attempts failed for ${place.host}. Reporting as UNAVAILABLE.`);
-    return { place, isAvailable: false };
+    // Якщо всі 5 спроби не вдалися
+    this.logger.warn(`All ${retries} check attempts failed for ${place.host}. Reporting as ${lastCurrentAvailability === false ? 'UNAVAILABLE' : 'UNKNOWN (Errors)'}.`);
+    return { place, isAvailable: lastCurrentAvailability };
   }
   // --- КІНЕЦЬ НОВИХ МЕТОДІВ ---
 
   /**
      * Cервіс B: Перевірка через check-host.net (з ВИПРАВЛЕНОЮ логікою перевірки "OK")
      */
-  private async checkViaCheckHost(host: string): Promise<boolean> {
+  private async checkViaCheckHost(host: string): Promise<boolean | null> {
     this.logger.verbose(`[CheckHost] Starting PING check for ${host} (EU)...`);
 
     // --- 1. Визначимо вузли ---
@@ -202,14 +205,14 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       }
     } catch (error: any) {
       this.logger.error(`[CheckHost] (Request phase) FAILED: ${error.message}`);
-      return false; // Провал на етапі 1
+      return null; // Повертаємо null, бо не змогли навіть створити запит
     }
 
-    this.logger.verbose(`[CheckHost] Starting polling for ${requestId} (max 30s)...`);
+    this.logger.verbose(`[CheckHost] Starting polling for ${requestId} (max 60s)...`);
 
     // --- 3. КОРЕКТНА ЛОГІКА ПУЛІНГУ ---
     const resultUrl = `https://check-host.net/check-result/${requestId}`;
-    const maxAttempts = 5;
+    const maxAttempts = 10; // ЗБІЛЬШЕНО до 10 attempts
     const pollInterval = 6000; // 6 секунд
 
     for (let i = 1; i <= maxAttempts; i++) {
@@ -250,8 +253,8 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       }
 
       // 2. "OK" НЕ ЗНАЙДЕНО НА ЦІЙ СПРОБІ.
-      //    Перевіряємо, чи тест *точно* завершився з помилкою,
-      //    чи він ще триває.
+      //    Перевіряємо, чи тест *точно* завершився з помилкою,
+      //    чи він ще триває.
 
       // 2a. Перевіряємо, чи всі вузли вже відзвітували
       let allNodesReported = results !== null;
@@ -267,7 +270,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       // 2b. Всі вузли відзвітували, але "OK" не було (значить, TIMEOUT)
       if (allNodesReported) {
         this.logger.warn(`[CheckHost] Test COMPLETED on attempt ${i}, but no 'OK' found (result was TIMEOUT/FAILED).`);
-        return false; // !!! ПРОВАЛ! Тест завершено з помилкою.
+        return false; // !!! ПРОВАЛ! Тест завершено з помилкою (ми точно знаємо, що всі вузли сказали "BAD")
       }
 
       // 2c. Тест ще триває (null або не всі вузли)
@@ -277,15 +280,16 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       }
     }
 
-    // 3. (Провал) Ми вийшли з циклу (пройшли всі 5 спроб)
-    this.logger.error(`[CheckHost] FAILED: Polling timed out after 30s.`);
-    return false;
+    // 3. (Провал) Ми вийшли з циклу (пройшли всі спроби)
+    this.logger.error(`[CheckHost] FAILED: Polling timed out. Returning NULL (Indeterminate).`);
+    return null; // <--- ЗМІНА: Повертаємо null при таймауті
   }
+
 
   /**
    * Cервіс A: Перевірка через ViewDNS (це ваш старий код, перенесений сюди)
    */
-  private async checkViaViewDNS(host: string): Promise<boolean> {
+  private async checkViaViewDNS(host: string): Promise<boolean | null> {
     const url = `https://api.viewdns.info/ping/v2/?host=${host}&apikey=${API_KEY}&output=json`;
     this.logger.verbose(`Starting PING check for ${host} via ViewDNS API...`);
 
@@ -316,11 +320,11 @@ export class ElectricityAvailabilityService implements OnModuleInit {
           }
         } else {
           this.logger.warn(`ViewDNS check failed (No 'Europe' region found in API response) for ${host}.`);
-          return false;
+          return null; // Невідомо
         }
       } else {
         this.logger.error(`PING check via ViewDNS API failed (Invalid JSON response).`);
-        return false;
+        return null;
       }
     } catch (error: any) {
       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.response?.status === 504) {
@@ -328,7 +332,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       } else {
         this.logger.error(`PING check via ViewDNS API failed (HTTP Error) for ${host}. Error: ${error.message}`);
       }
-      return false;
+      return null;
     }
   }
 
@@ -337,31 +341,39 @@ export class ElectricityAvailabilityService implements OnModuleInit {
    */
   private async check(place: Place): Promise<{
     readonly place: Place;
-    readonly isAvailable: boolean;
+    readonly isAvailable: boolean | null;
   }> {
     const host = place.host;
     this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + CheckHost.net)`);
 
     // Запускаємо обидві перевірки паралельно
     const results = await Promise.allSettled([
-      this.checkViaViewDNS(host),      // Сервіс A (Європа)
-      this.checkViaCheckHost(host)     // Сервіс B, теж Європа
+      this.checkViaViewDNS(host),      // Сервіс A (Європа)
+      this.checkViaCheckHost(host)     // Сервіс B, теж Європа
     ]);
 
     // Аналізуємо результати
-    const isViewDNSOK = results[0].status === 'fulfilled' && results[0].value === true;
-    const isCheckHostOK = results[1].status === 'fulfilled' && results[1].value === true;
+    const viewDNSResult = results[0].status === 'fulfilled' ? results[0].value : null;
+    const checkHostResult = results[1].status === 'fulfilled' ? results[1].value : null;
+
+    const isViewDNSOK = viewDNSResult === true;
+    const isCheckHostOK = checkHostResult === true;
 
     // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
-    const isAvailable = isViewDNSOK || isCheckHostOK;
-
-    if (isAvailable) {
-      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${isViewDNSOK}, CheckHost: ${isCheckHostOK})`);
-    } else {
-      this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${isViewDNSOK}, CheckHost: ${isCheckHostOK})`);
+    if (isViewDNSOK || isCheckHostOK) {
+      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${viewDNSResult}, CheckHost: ${checkHostResult})`);
+      return { place, isAvailable: true };
     }
 
-    return { place, isAvailable };
+    // Якщо ОБИДВА null -> null
+    if (viewDNSResult === null && checkHostResult === null) {
+      this.logger.warn(`DUAL check INCONCLUSIVE for ${host} (Both services failed/timed out).`);
+      return { place, isAvailable: null };
+    }
+
+    // В інших випадках (хоча б один false і жодного true) -> false
+    this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${viewDNSResult}, CheckHost: ${checkHostResult})`);
+    return { place, isAvailable: false };
   }
 
 
@@ -404,6 +416,12 @@ export class ElectricityAvailabilityService implements OnModuleInit {
         }
         this.logger.debug(`[Cron] Checking place ${place.name} (${place.id})...`);
         const { isAvailable: currentAvailability } = await this.checkWithRetries(place);
+
+        if (currentAvailability === null) {
+          this.logger.warn(`[Cron] Could not determine availability for ${place.name} (${place.id}) after retries. Skipping update to avoid false positives.`);
+          return;
+        }
+
         const previousAvailabilityInCache = this.lastKnownStatus[place.id];
 
         if (previousAvailabilityInCache === undefined || previousAvailabilityInCache !== currentAvailability) {
