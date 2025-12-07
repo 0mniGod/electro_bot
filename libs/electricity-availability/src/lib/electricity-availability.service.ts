@@ -3,6 +3,7 @@ import { PlaceRepository } from '@electrobot/place-repo'; // Залишаємо 
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit, forwardRef, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import * as net from 'net';
 import {
   addHours,
   addMinutes,
@@ -343,43 +344,93 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     }
   }
 
+  // --- Service 3: Direct TCP Check (Port 80) ---
+  private async checkViaDirectTCP(host: string): Promise<boolean | null> {
+    this.logger.verbose(`[DirectTCP] Starting TCP check for ${host}:80...`);
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(3000); // 3 seconds timeout
+
+      let isResolved = false;
+      const safeResolve = (val: boolean | null) => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve(val);
+        }
+      };
+
+      socket.on('connect', () => {
+        this.logger.debug(`[DirectTCP] Connection to ${host}:80 SUCCESS`);
+        socket.destroy();
+        safeResolve(true);
+      });
+
+      socket.on('timeout', () => {
+        this.logger.warn(`[DirectTCP] Connection to ${host}:80 TIMED OUT`);
+        socket.destroy();
+        safeResolve(null);
+      });
+
+      socket.on('error', (err: any) => {
+        this.logger.debug(`[DirectTCP] Connection to ${host}:80 FAILED: ${err.message}`);
+        socket.destroy();
+        // ECONNREFUSED implies Host is UP but Port is Closed -> Electricity IS ON
+        if (err.code === 'ECONNREFUSED') {
+          this.logger.debug(`[DirectTCP] ECONNREFUSED -> Host is up, just port closed.`);
+          safeResolve(true);
+        } else {
+          safeResolve(false);
+        }
+      });
+
+      socket.connect(80, host);
+    });
+  }
+
   /**
-   * Головний метод check, який тепер викликає A і B
+   * Головний метод check, який тепер викликає A, B і C
    */
   private async check(place: Place): Promise<{
     readonly place: Place;
     readonly isAvailable: boolean | null;
   }> {
     const host = place.host;
-    this.logger.verbose(`Starting DUAL check for ${host}... (ViewDNS + CheckHost.net)`);
+    this.logger.verbose(`Starting TRIPLE check for ${host}... (ViewDNS + CheckHost + DirectTCP)`);
 
-    // Запускаємо обидві перевірки паралельно
-    const results = await Promise.allSettled([
-      this.checkViaViewDNS(host),      // Сервіс A (Європа)
-      this.checkViaCheckHost(host)     // Сервіс B, теж Європа
+    // Helper to reflect promise state (shim (polyfill) for Promise.allSettled)
+    const reflect = (p: Promise<boolean | null>) =>
+      p.then(v => ({ status: 'fulfilled' as const, value: v }))
+        .catch(e => ({ status: 'rejected' as const, reason: e }));
+
+    // Запускаємо перевірки паралельно
+    const results = await Promise.all([
+      reflect(this.checkViaViewDNS(host)),
+      reflect(this.checkViaCheckHost(host)),
+      reflect(this.checkViaDirectTCP(host))
     ]);
 
-    // Аналізуємо результати
     const viewDNSResult = results[0].status === 'fulfilled' ? results[0].value : null;
     const checkHostResult = results[1].status === 'fulfilled' ? results[1].value : null;
+    const directTcpResult = results[2].status === 'fulfilled' ? results[2].value : null;
 
-    const isViewDNSOK = viewDNSResult === true;
-    const isCheckHostOK = checkHostResult === true;
+    this.logger.log(
+      `Check results: ViewDNS=${viewDNSResult}, CheckHost=${checkHostResult}, DirectTCP=${directTcpResult}`
+    );
 
     // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
-    if (isViewDNSOK || isCheckHostOK) {
-      this.logger.log(`DUAL check SUCCESS for ${host} (ViewDNS: ${viewDNSResult}, CheckHost: ${checkHostResult})`);
+    if (viewDNSResult === true || checkHostResult === true || directTcpResult === true) {
+      this.logger.log(`TRIPLE check SUCCESS for ${host}`);
       return { place, isAvailable: true };
     }
 
-    // Якщо ОБИДВА null -> null
-    if (viewDNSResult === null && checkHostResult === null) {
-      this.logger.warn(`DUAL check INCONCLUSIVE for ${host} (Both services failed/timed out).`);
+    // Якщо ВСІ null -> null
+    if (viewDNSResult === null && checkHostResult === null && directTcpResult === null) {
+      this.logger.warn(`TRIPLE check INCONCLUSIVE for ${host} (All services failed/timed out).`);
       return { place, isAvailable: null };
     }
 
-    // В інших випадках (хоча б один false і жодного true) -> false
-    this.logger.warn(`DUAL check FAILED for ${host} (ViewDNS: ${viewDNSResult}, CheckHost: ${checkHostResult})`);
+    // В інших випадках -> false
+    this.logger.warn(`TRIPLE check FAILED for ${host}`);
     return { place, isAvailable: false };
   }
 
