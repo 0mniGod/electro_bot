@@ -277,13 +277,39 @@ export class ElectricityAvailabilityService implements OnModuleInit {
       // 2c. Тест ще триває (null або не всі вузли)
       if (i < maxAttempts) {
         this.logger.verbose(`[CheckHost] Results not complete on attempt ${i}. Continuing poll...`);
-        // Цикл for автоматично продовжиться
+        // 3. (Провал) Ми вийшли з циклу (пройшли всі спроби)
+        this.logger.error(`[CheckHost] FAILED: Polling timed out. Returning NULL (Indeterminate).`);
+        return null; // <--- ЗМІНА: Повертаємо null при таймауті
       }
-    }
 
-    // 3. (Провал) Ми вийшли з циклу (пройшли всі спроби)
-    this.logger.error(`[CheckHost] FAILED: Polling timed out. Returning NULL (Indeterminate).`);
-    return null; // <--- ЗМІНА: Повертаємо null при таймауті
+  // --- Service 3: Direct HTTP Check (Port 80) ---
+  // Unlike ICMP Ping, this uses standard HTTP protocol which is allowed on almost all servers.
+  // It effectively checks if the home router's web interface (or port forward) is responding.
+  private async checkViaDirectHttp(host: string): Promise<boolean | null> {
+    const url = `http://${host}`;
+    this.logger.verbose(`[DirectHTTP] Starting HTTP check for ${url}...`);
+
+    try {
+      // We don't care about the content, just if we can connect.
+      // Many routers return 401/403 for external access, which implies they are ONLINE.
+      // A timeout means offline.
+      await firstValueFrom(
+        this.httpService.get(url, {
+          timeout: 4000, // 4 seconds timeout
+          headers: { 'User-Agent': 'ElectroBotConnectivityCheck/1.0' },
+          validateStatus: () => true // Resolve promise for ANY status code (200, 401, 403, 500 etc)
+        })
+      );
+      this.logger.debug(`[DirectHTTP] Success (Host responded).`);
+      return true;
+    } catch (error: any) {
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        this.logger.warn(`[DirectHTTP] Timed out.`);
+        return null;
+      }
+      this.logger.debug(`[DirectHTTP] Failed: ${error.message}`);
+      return false;
+    }
   }
 
 
@@ -344,49 +370,6 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     }
   }
 
-  // --- Service 3: Direct TCP Check (Port 80) ---
-  private async checkViaDirectTCP(host: string): Promise<boolean | null> {
-    this.logger.verbose(`[DirectTCP] Starting TCP check for ${host}:80...`);
-    return new Promise((resolve) => {
-      const socket = new net.Socket();
-      socket.setTimeout(3000); // 3 seconds timeout
-
-      let isResolved = false;
-      const safeResolve = (val: boolean | null) => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve(val);
-        }
-      };
-
-      socket.on('connect', () => {
-        this.logger.debug(`[DirectTCP] Connection to ${host}:80 SUCCESS`);
-        socket.destroy();
-        safeResolve(true);
-      });
-
-      socket.on('timeout', () => {
-        this.logger.warn(`[DirectTCP] Connection to ${host}:80 TIMED OUT`);
-        socket.destroy();
-        safeResolve(null);
-      });
-
-      socket.on('error', (err: any) => {
-        this.logger.debug(`[DirectTCP] Connection to ${host}:80 FAILED: ${err.message}`);
-        socket.destroy();
-        // ECONNREFUSED implies Host is UP but Port is Closed -> Electricity IS ON
-        if (err.code === 'ECONNREFUSED') {
-          this.logger.debug(`[DirectTCP] ECONNREFUSED -> Host is up, just port closed.`);
-          safeResolve(true);
-        } else {
-          safeResolve(false);
-        }
-      });
-
-      socket.connect(80, host);
-    });
-  }
-
   /**
    * Головний метод check, який тепер викликає A, B і C
    */
@@ -395,7 +378,7 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     readonly isAvailable: boolean | null;
   }> {
     const host = place.host;
-    this.logger.verbose(`Starting TRIPLE check for ${host}... (ViewDNS + CheckHost + DirectTCP)`);
+    this.logger.verbose(`Starting TRIPLE check for ${host}... (ViewDNS + CheckHost + DirectHTTP)`);
 
     // Helper to reflect promise state (shim (polyfill) for Promise.allSettled)
     const reflect = (p: Promise<boolean | null>) =>
@@ -406,25 +389,25 @@ export class ElectricityAvailabilityService implements OnModuleInit {
     const results = await Promise.all([
       reflect(this.checkViaViewDNS(host)),
       reflect(this.checkViaCheckHost(host)),
-      reflect(this.checkViaDirectTCP(host))
+      reflect(this.checkViaDirectHttp(host))
     ]);
 
     const viewDNSResult = results[0].status === 'fulfilled' ? results[0].value : null;
     const checkHostResult = results[1].status === 'fulfilled' ? results[1].value : null;
-    const directTcpResult = results[2].status === 'fulfilled' ? results[2].value : null;
+    const directHttpResult = results[2].status === 'fulfilled' ? results[2].value : null;
 
     this.logger.log(
-      `Check results: ViewDNS=${viewDNSResult}, CheckHost=${checkHostResult}, DirectTCP=${directTcpResult}`
+      `Check results: ViewDNS=${viewDNSResult}, CheckHost=${checkHostResult}, DirectHTTP=${directHttpResult}`
     );
 
     // Логіка: Світло Є, якщо ХОЧА Б ОДИН сервіс це підтвердив
-    if (viewDNSResult === true || checkHostResult === true || directTcpResult === true) {
+    if (viewDNSResult === true || checkHostResult === true || directHttpResult === true) {
       this.logger.log(`TRIPLE check SUCCESS for ${host}`);
       return { place, isAvailable: true };
     }
 
     // Якщо ВСІ null -> null
-    if (viewDNSResult === null && checkHostResult === null && directTcpResult === null) {
+    if (viewDNSResult === null && checkHostResult === null && directHttpResult === null) {
       this.logger.warn(`TRIPLE check INCONCLUSIVE for ${host} (All services failed/timed out).`);
       return { place, isAvailable: null };
     }
