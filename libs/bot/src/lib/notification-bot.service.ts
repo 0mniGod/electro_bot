@@ -1237,12 +1237,13 @@ export class NotificationBotService implements OnModuleInit {
 
         // --- КРОК 2: ДОДАЄМО ВАШ ID В КЕШ ---
         const YOUR_TELEGRAM_CHAT_ID = 229951457;
+        const SECOND_TELEGRAM_CHAT_ID = 269704642; // Другий користувач
         // --- ----------------------------- ---
 
         for (const placeId of activePlaceIds) {
           if (placeId === HARDCODED_PLACE.id) {
-            this.subscriberCache[placeId] = [YOUR_TELEGRAM_CHAT_ID]; // Додаємо вас
-            this.logger.log(`[Cache] Hardcoded admin ${YOUR_TELEGRAM_CHAT_ID} to cache for place ${placeId}.`);
+            this.subscriberCache[placeId] = [YOUR_TELEGRAM_CHAT_ID, SECOND_TELEGRAM_CHAT_ID]; // Додаємо обох користувачів
+            this.logger.log(`[Cache] Hardcoded admins ${YOUR_TELEGRAM_CHAT_ID}, ${SECOND_TELEGRAM_CHAT_ID} to cache for place ${placeId}.`);
           } else {
             this.subscriberCache[placeId] = [];
           }
