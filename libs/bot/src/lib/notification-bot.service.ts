@@ -1520,14 +1520,38 @@ export class NotificationBotService implements OnModuleInit {
         return;
       }
 
-      const scheduleText = outageDataService.formatScheduleText(schedule);
+      // Використовуємо новий форматер з періодами
+      const scheduleText = outageDataService.formatScheduleWithPeriods(schedule);
       const imageUrl = outageDataService.getImageUrl(gpvGroup);
 
-      const msg = `📋 **Графік відключень GPV${gpvGroup}**
+      let msg = `📋 **Графік відключень сьогодні**
+
+Група: GPV${gpvGroup}
 
 ${scheduleText}
 
 _Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
+
+      // Перевіряємо чи є завтрашній графік
+      const tomorrowTimestamp = outageDataService.getTomorrowTimestamp();
+      if (tomorrowTimestamp) {
+        const tomorrowSchedule = outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
+        if (tomorrowSchedule && !outageDataService.isPlaceholderSchedule(tomorrowSchedule.schedule)) {
+          // Завтрашній день
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          tomorrow.setHours(0, 0, 0, 0);
+
+          const tomorrowText = outageDataService.formatScheduleWithPeriods(tomorrowSchedule, tomorrow);
+          msg += `
+
+━━━━━━━━━━━━━
+
+📅 **Графік на завтра**
+
+${tomorrowText}`;
+        }
+      }
 
       if (imageUrl) {
         try {

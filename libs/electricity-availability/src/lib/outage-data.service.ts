@@ -14,6 +14,7 @@ interface OutageDataResponse {
                 }
             }
         };
+        today: number; // Timestamp для актуальних даних
         updateFact?: string;
     };
     preset?: any;
@@ -89,18 +90,20 @@ export class OutageDataService {
         }
 
         try {
-            // Беремо перший (найновіший) timestamp з fact.data
-            const timestamps = Object.keys(this.cachedData.fact.data);
-            if (timestamps.length === 0) {
-                this.logger.warn('[OutageData] No timestamps found in fact.data');
+            // Використовуємо fact.today для отримання актуальних даних
+            const todayTimestamp = this.cachedData.fact.today;
+            if (!todayTimestamp) {
+                this.logger.warn('[OutageData] fact.today not found in cached data');
                 return null;
             }
 
-            // Сортуємо по спаданню, щоб взяти найновіший
-            timestamps.sort((a, b) => parseInt(b) - parseInt(a));
-            const latestTimestamp = timestamps[0];
+            const timestampData = this.cachedData.fact.data[todayTimestamp];
+            if (!timestampData) {
+                this.logger.warn(`[OutageData] No data found for timestamp ${todayTimestamp}`);
+                return null;
+            }
 
-            const timestampData = this.cachedData.fact.data[latestTimestamp];
+            this.logger.log(`[OutageData] Using timestamp from fact.today: ${todayTimestamp}`);
 
             // Формуємо ключ групи у правильному форматі
             const formattedGroupKey = groupKey.startsWith('GPV') ? groupKey : `GPV${groupKey}`;
@@ -115,13 +118,13 @@ export class OutageDataService {
 
             const schedule = timestampData[formattedGroupKey];
 
-            this.logger.log(`[OutageData] Parsed schedule for ${formattedGroupKey}, timestamp: ${latestTimestamp}`);
+            this.logger.log(`[OutageData] Parsed schedule for ${formattedGroupKey}, timestamp: ${todayTimestamp}`);
             this.logger.log(`[OutageData] Schedule keys: ${Object.keys(schedule).length} hours`);
             this.logger.log(`[OutageData] First 3 hours: ${JSON.stringify(Object.entries(schedule).slice(0, 3))}`);
             this.logger.log(`[OutageData] FULL SCHEDULE: ${JSON.stringify(schedule)}`);
 
             return {
-                timestamp: latestTimestamp,
+                timestamp: todayTimestamp.toString(),
                 schedule: schedule,
                 lastUpdated: this.cachedData.lastUpdated,
                 updateFact: this.cachedData.fact.updateFact
@@ -233,6 +236,253 @@ export class OutageDataService {
         lines.push(`📊 **Статистика:**`);
         lines.push(`💡 Зі світлом: ${hoursWithLight} год`);
         lines.push(`🌚 Без світла: ${hoursWithoutLight} год`);
+
+        return lines.join('\n');
+    }
+
+    /**
+     * Перевіряє чи є графік placeholder (всі години "yes")
+     */
+    public isPlaceholderSchedule(schedule: { [hour: string]: string }): boolean {
+        const hours = Object.keys(schedule);
+        if (hours.length !== 24) return false;
+
+        return hours.every(hour => schedule[hour] === 'yes');
+    }
+
+    /**
+     * Отримує timestamp для завтрашнього дня (якщо доступний)
+     */
+    public getTomorrowTimestamp(): number | null {
+        if (!this.cachedData || !this.cachedData.fact) {
+            return null;
+        }
+
+        const todayTimestamp = this.cachedData.fact.today;
+        const availableTimestamps = Object.keys(this.cachedData.fact.data)
+            .map(ts => parseInt(ts))
+            .filter(ts => ts > todayTimestamp);
+
+        if (availableTimestamps.length === 0) {
+            return null;
+        }
+
+        // Повертаємо найменший timestamp який більший за today
+        return Math.min(...availableTimestamps);
+    }
+
+    /**
+     * Парсить графік для конкретного timestamp
+     */
+    public parseGroupScheduleForDate(groupKey: string, timestamp: number): ParsedSchedule | null {
+        if (!this.cachedData || !this.cachedData.fact || !this.cachedData.fact.data) {
+            this.logger.warn('[OutageData] No cached data available for parsing');
+            return null;
+        }
+
+        try {
+            const timestampData = this.cachedData.fact.data[timestamp];
+            if (!timestampData) {
+                this.logger.warn(`[OutageData] No data found for timestamp ${timestamp}`);
+                return null;
+            }
+
+            const formattedGroupKey = groupKey.startsWith('GPV') ? groupKey : `GPV${groupKey}`;
+
+            if (!timestampData[formattedGroupKey]) {
+                this.logger.warn(`[OutageData] Group ${formattedGroupKey} not found in timestamp ${timestamp}`);
+                return null;
+            }
+
+            const schedule = timestampData[formattedGroupKey];
+
+            return {
+                timestamp: timestamp.toString(),
+                schedule: schedule,
+                lastUpdated: this.cachedData.lastUpdated,
+                updateFact: this.cachedData.fact.updateFact
+            };
+        } catch (error: any) {
+            this.logger.error(`[OutageData] Failed to parse schedule for timestamp ${timestamp}: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Форматує графік із схлопуванням періодів
+     * @param schedule - Розпарсений графік
+     * @param referenceDate - Дата для порівняння (для визначення минулого/поточного/майбутнього)
+     */
+    public formatScheduleWithPeriods(schedule: ParsedSchedule, referenceDate: Date = new Date()): string {
+        interface Period {
+            startHour: number;
+            startMinute: number;
+            endHour: number;
+            endMinute: number;
+            status: string;
+            isPast: boolean;
+            isCurrent: boolean;
+            isFuture: boolean;
+        }
+
+        const periods: Period[] = [];
+        const hours = Object.keys(schedule.schedule).sort((a, b) => parseInt(a) - parseInt(b));
+
+        let currentPeriod: Period | null = null;
+
+        for (const hourStr of hours) {
+            const hour = parseInt(hourStr);
+            const status = schedule.schedule[hourStr];
+
+            // Обробка "first" та "second" - розбиваємо годину на два періоди
+            if (status === 'first') {
+                // Перша половина години - немає світла
+                if (currentPeriod && currentPeriod.status === 'no') {
+                    currentPeriod.endHour = hour;
+                    currentPeriod.endMinute = 30;
+                } else {
+                    if (currentPeriod) periods.push(currentPeriod);
+                    currentPeriod = {
+                        startHour: hour,
+                        startMinute: 0,
+                        endHour: hour,
+                        endMinute: 30,
+                        status: 'no',
+                        isPast: false,
+                        isCurrent: false,
+                        isFuture: false
+                    };
+                }
+                periods.push(currentPeriod);
+
+                // Друга половина - є світло
+                currentPeriod = {
+                    startHour: hour,
+                    startMinute: 30,
+                    endHour: hour + 1,
+                    endMinute: 0,
+                    status: 'yes',
+                    isPast: false,
+                    isCurrent: false,
+                    isFuture: false
+                };
+            } else if (status === 'second') {
+                // Перша половина години - є світло
+                if (currentPeriod && currentPeriod.status === 'yes') {
+                    currentPeriod.endHour = hour;
+                    currentPeriod.endMinute = 30;
+                } else {
+                    if (currentPeriod) periods.push(currentPeriod);
+                    currentPeriod = {
+                        startHour: hour,
+                        startMinute: 0,
+                        endHour: hour,
+                        endMinute: 30,
+                        status: 'yes',
+                        isPast: false,
+                        isCurrent: false,
+                        isFuture: false
+                    };
+                }
+                periods.push(currentPeriod);
+
+                // Друга половина - немає світла
+                currentPeriod = {
+                    startHour: hour,
+                    startMinute: 30,
+                    endHour: hour + 1,
+                    endMinute: 0,
+                    status: 'no',
+                    isPast: false,
+                    isCurrent: false,
+                    isFuture: false
+                };
+            } else {
+                // Звичайний статус (yes/no)
+                if (currentPeriod && currentPeriod.status === status) {
+                    // Продовжуємо поточний період
+                    currentPeriod.endHour = hour + 1;
+                    currentPeriod.endMinute = 0;
+                } else {
+                    // Починаємо новий період
+                    if (currentPeriod) periods.push(currentPeriod);
+                    currentPeriod = {
+                        startHour: hour,
+                        startMinute: 0,
+                        endHour: hour + 1,
+                        endMinute: 0,
+                        status: status,
+                        isPast: false,
+                        isCurrent: false,
+                        isFuture: false
+                    };
+                }
+            }
+        }
+
+        // Додаємо останній період
+        if (currentPeriod) {
+            // Якщо endHour = 24, виправляємо на 00:00
+            if (currentPeriod.endHour === 24 && currentPeriod.endMinute === 0) {
+                currentPeriod.endHour = 0;
+            }
+            periods.push(currentPeriod);
+        }
+
+        // Визначаємо минуле/поточне/майбутнє для кожного періоду
+        const now = referenceDate;
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+
+        for (const period of periods) {
+            const startTime = period.startHour * 60 + period.startMinute;
+            const endTime = period.endHour === 0 ? 24 * 60 : period.endHour * 60 + period.endMinute;
+            const nowTime = currentHour * 60 + currentMinute;
+
+            if (endTime <= nowTime) {
+                period.isPast = true;
+            } else if (startTime <= nowTime && nowTime < endTime) {
+                period.isCurrent = true;
+            } else {
+                period.isFuture = true;
+            }
+        }
+
+        // Форматуємо періоди в текст
+        const lines: string[] = [];
+        let hoursWithLight = 0;
+        let hoursWithoutLight = 0;
+
+        for (const period of periods) {
+            const startTime = `${String(period.startHour).padStart(2, '0')}:${String(period.startMinute).padStart(2, '0')}`;
+            const endTime = `${String(period.endHour).padStart(2, '0')}:${String(period.endMinute).padStart(2, '0')}`;
+
+            let prefixEmoji: string;
+            if (period.isPast) {
+                prefixEmoji = '⏮️'; // Минуле
+            } else if (period.isCurrent) {
+                prefixEmoji = '▶️'; // Поточне
+            } else {
+                prefixEmoji = '⏭️'; // Майбутнє
+            }
+
+            let statusEmoji: string;
+            if (period.status === 'yes') {
+                statusEmoji = '💡';
+                hoursWithLight += (period.endHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
+            } else {
+                statusEmoji = '🌚';
+                hoursWithoutLight += (period.endHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
+            }
+
+            lines.push(`${prefixEmoji} ${startTime} - ${endTime} ${statusEmoji}`);
+        }
+
+        // Додаємо статистику
+        lines.push('');
+        lines.push(`📊 **Статистика:**`);
+        lines.push(`💡 Зі світлом: ${hoursWithLight.toFixed(1)} год`);
+        lines.push(`🌚 Без світла: ${hoursWithoutLight.toFixed(1)} год`);
 
         return lines.join('\n');
     }

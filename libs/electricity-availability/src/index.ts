@@ -5,3 +5,4 @@ export * from './lib/history-item.type';
 export * from './lib/schedule-cache.service';
 export * from './lib/gpv-config.service';
 export * from './lib/outage-data.service';
+export * from './lib/tomorrow-schedule-tracker.service';

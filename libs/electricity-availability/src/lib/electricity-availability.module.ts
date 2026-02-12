@@ -6,6 +6,7 @@ import { BotModule } from '@electrobot/bot';
 import { ScheduleCacheService } from './schedule-cache.service';
 import { GpvConfigService } from './gpv-config.service';
 import { OutageDataService } from './outage-data.service';
+import { TomorrowScheduleTrackerService } from './tomorrow-schedule-tracker.service';
 
 @Module({
   imports: [
@@ -17,13 +18,16 @@ import { OutageDataService } from './outage-data.service';
     ElectricityAvailabilityService,
     ScheduleCacheService,
     GpvConfigService,
-    OutageDataService
+    OutageDataService,
+    TomorrowScheduleTrackerService
   ],
   exports: [
     ElectricityAvailabilityService,
     ScheduleCacheService,
     GpvConfigService,
-    OutageDataService
+    OutageDataService,
+    TomorrowScheduleTrackerService
   ],
 })
 export class ElectricityAvailabilityModule { }
+
