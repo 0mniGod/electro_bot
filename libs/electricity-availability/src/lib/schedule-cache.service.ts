@@ -269,19 +269,29 @@ export class ScheduleCacheService implements OnModuleInit {
       this.scheduleCache.date_today = dateKey;
     }
 
+    this.logger.log(`[ScheduleCache] Updating legacy cache for ${isTomorrow ? 'tomorrow' : 'today'} (Keys: ${Object.keys(schedule).length})`);
+
     // Формуємо слоти 00:00, 00:30 ...
     const slots: { [time: string]: number } = {};
-    // Get all keys and convert to numbers to sort
-    const hours = Object.keys(schedule).map(Number).sort((a, b) => a - b);
+    const keys = Object.keys(schedule).map(Number).sort((a, b) => a - b);
 
-    for (const hour of hours) {
+    // Detect 1-based indexing (e.g., 1..24)
+    // If min is 1 and max is 24, we assume it's 1-based and needs -1 offset.
+    const minKey = keys.length > 0 ? keys[0] : 0;
+    const maxKey = keys.length > 0 ? keys[keys.length - 1] : 0;
+    const offset = (minKey === 1 && maxKey === 24) ? -1 : 0;
+
+    for (const key of keys) {
       // Try unpadded first, then padded
-      let status = schedule[hour];
+      let status = schedule[key];
       if (status === undefined) {
-        status = schedule[String(hour).padStart(2, '0')];
+        status = schedule[String(key).padStart(2, '0')];
       }
 
-      const hourStr = String(hour).padStart(2, '0');
+      const hourIndex = key + offset;
+      if (hourIndex < 0 || hourIndex > 23) continue;
+
+      const hourStr = String(hourIndex).padStart(2, '0');
 
       // 00:00
       slots[`${hourStr}:00`] = this.mapOutageStatusToLightStatus(String(status), 1);
