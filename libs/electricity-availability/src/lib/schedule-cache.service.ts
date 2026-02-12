@@ -253,18 +253,18 @@ export class ScheduleCacheService implements OnModuleInit {
     }
 
     // Визначаємо дату (ключ)
+    // Визначаємо дату (ключ) з урахуванням TZ_KYIV
     let dateKey: string;
     if (isTomorrow) {
-      const d = new Date();
-      d.setDate(d.getDate() + 1);
-      // Форматуємо дату як YYYY-MM-DD з урахуванням таймзони (простий хак)
-      dateKey = d.toLocaleDateString('uk-UA').split('.').reverse().join('-');
-      if (dateKey.length < 10) dateKey = d.toISOString().split('T')[0]; // fallback
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowKyiv = convertToTimeZone(tomorrow, { timeZone: TZ_KYIV });
+      dateKey = format(tomorrowKyiv, 'yyyy-MM-dd');
 
       this.scheduleCache.date_tomorrow = dateKey;
     } else {
-      dateKey = new Date().toLocaleDateString('uk-UA').split('.').reverse().join('-');
-      if (dateKey.length < 10) dateKey = new Date().toISOString().split('T')[0]; // fallback
+      const nowKyiv = convertToTimeZone(new Date(), { timeZone: TZ_KYIV });
+      dateKey = format(nowKyiv, 'yyyy-MM-dd');
 
       this.scheduleCache.date_today = dateKey;
     }
