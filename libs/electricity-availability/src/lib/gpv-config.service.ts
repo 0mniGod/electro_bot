@@ -27,7 +27,14 @@ export class GpvConfigService {
       if (fs.existsSync(this.configPath)) {
         const data = fs.readFileSync(this.configPath, 'utf-8');
         this.cachedConfig = JSON.parse(data);
-        this.logger.log(`Loaded GPV configuration: Group ${this.cachedConfig?.gpvGroup}, Region ${this.cachedConfig?.region}`);
+
+        // Перевіряємо чи встановлена потрібна група
+        if (this.cachedConfig?.gpvGroup !== '28.1') {
+          this.logger.warn(`GPV group was ${this.cachedConfig?.gpvGroup}. Changing to default 28.1.`);
+          this.setGpvGroup('28.1', 'kyiv');
+        } else {
+          this.logger.log(`Loaded GPV configuration: Group ${this.cachedConfig?.gpvGroup}, Region ${this.cachedConfig?.region}`);
+        }
       } else {
         this.logger.warn('GPV configuration file not found. Setting default group 28.1.');
         this.setGpvGroup('28.1', 'kyiv');

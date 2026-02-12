@@ -9,6 +9,7 @@ import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/co
 import { NotificationBotService } from '@electrobot/bot';
 import { GpvConfigService } from './gpv-config.service';
 import { OutageDataService } from './outage-data.service';
+import { TomorrowScheduleTrackerService } from './tomorrow-schedule-tracker.service';
 import {
   EMOJ_BULB,
   EMOJ_MOON,
@@ -82,7 +83,6 @@ export class ScheduleCacheService implements OnModuleInit {
   private scheduleCache: ScheduleCache | null = null;
   private isFetching = false;
   private lastNotifiedScheduleJSON: string | null = null;
-  private notifiedTomorrowDates = new Set<string>();
 
   // Outage-data: Кеш для останнього графіка з outage-data-ua
   private lastOutageSchedule: any = null;
@@ -92,7 +92,8 @@ export class ScheduleCacheService implements OnModuleInit {
     @Inject(forwardRef(() => NotificationBotService))
     private readonly notificationBotService: NotificationBotService,
     private readonly gpvConfigService: GpvConfigService,
-    private readonly outageDataService: OutageDataService
+    private readonly outageDataService: OutageDataService,
+    private readonly tomorrowScheduleTracker: TomorrowScheduleTrackerService
   ) { }
 
   /**
@@ -166,6 +167,7 @@ export class ScheduleCacheService implements OnModuleInit {
 
         // --- ADDED: Send Notification on Startup ---
         if (notifyUsers) {
+          this.logger.log('[ScheduleCache] Preparing startup notification...');
           const fullScheduleText = this.outageDataService.formatScheduleWithPeriods(currentScheduleObj);
           const lastUpdatedFormatted = this.outageDataService.formatLastUpdated(
             currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
@@ -173,7 +175,10 @@ export class ScheduleCacheService implements OnModuleInit {
           const msg = `🔔 **Бот запущено! Графік на сьогодні (${dateTodayStr})**\n\n` +
             `📋 **Повний графік:**\n${fullScheduleText}\n\n` +
             `_Оновлено: ${lastUpdatedFormatted}_`;
-          this.notificationBotService.sendScrapedNotification(msg);
+
+          this.logger.log(`[ScheduleCache] Sending startup notification for group ${gpvGroup}`);
+          await this.notificationBotService.sendScrapedNotification(msg);
+          this.logger.log('[ScheduleCache] Startup notification sent successfully');
         }
         // -------------------------------------------
 
@@ -208,28 +213,15 @@ export class ScheduleCacheService implements OnModuleInit {
         msg += `📋 **Новий графік:**\n${fullScheduleText}\n\n`;
         msg += `_Оновлено: ${lastUpdatedFormatted}_`;
 
-        // 7. Додаємо інфо про завтрашній графік (якщо є)
-        const tomorrowTimestamp = this.outageDataService.getTomorrowTimestamp();
-        if (tomorrowTimestamp && !this.notifiedTomorrowDates.has(tomorrowTimestamp.toString())) {
-          const tomorrowSchedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
-
-          if (tomorrowSchedule && !this.outageDataService.isPlaceholderSchedule(tomorrowSchedule.schedule)) {
-            // Завтрашній день
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(0, 0, 0, 0);
-
-            const tomorrowText = this.outageDataService.formatScheduleWithPeriods(tomorrowSchedule, tomorrow);
-
-            msg += `\n\n━━━━━━━━━━━━━\n\n💡 **З'явився графік на завтра!**\n\n${tomorrowText}`;
-
-            // Запам'ятовуємо, що ми вже повідомили про цю версію завтрашнього графіку
-            this.notifiedTomorrowDates.add(tomorrowTimestamp.toString());
-          }
-        }
-
         this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
         await this.notificationBotService.sendScrapedNotification(msg);
+      }
+
+      // Перевіряємо чи є готове повідомлення про завтрашній графік
+      const tomorrowMessage = this.tomorrowScheduleTracker.getAndClearLastNotification();
+      if (tomorrowMessage && notifyUsers) {
+        this.logger.log(`[ScheduleCache] Sending tomorrow schedule notification`);
+        await this.notificationBotService.sendScrapedNotification(tomorrowMessage);
       }
 
       return true;
