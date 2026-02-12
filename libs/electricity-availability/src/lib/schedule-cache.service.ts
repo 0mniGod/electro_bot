@@ -271,10 +271,16 @@ export class ScheduleCacheService implements OnModuleInit {
 
     // Формуємо слоти 00:00, 00:30 ...
     const slots: { [time: string]: number } = {};
+    // Get all keys and convert to numbers to sort
     const hours = Object.keys(schedule).map(Number).sort((a, b) => a - b);
 
     for (const hour of hours) {
-      const status = schedule[hour];
+      // Try unpadded first, then padded
+      let status = schedule[hour];
+      if (status === undefined) {
+        status = schedule[String(hour).padStart(2, '0')];
+      }
+
       const hourStr = String(hour).padStart(2, '0');
 
       // 00:00
