@@ -187,6 +187,10 @@ export class OutageDataService {
     public formatScheduleText(schedule: ParsedSchedule): string {
         const lines: string[] = [];
 
+        // Лічильники для статистики
+        let hoursWithLight = 0;
+        let hoursWithoutLight = 0;
+
         // Сортуємо години
         const hours = Object.keys(schedule.schedule).sort((a, b) => parseInt(a) - parseInt(b));
 
@@ -198,19 +202,31 @@ export class OutageDataService {
             if (status === 'yes') {
                 emoji = '💡';
                 text = 'є світло';
+                hoursWithLight++;
             } else if (status === 'no') {
                 emoji = '🌚';
                 text = 'немає світла';
+                hoursWithoutLight++;
             } else if (status === 'first') {
                 emoji = '🕐';
                 text = 'немає світла (1-а половина)';
+                hoursWithoutLight += 0.5;
+                hoursWithLight += 0.5;
             } else if (status === 'second') {
                 emoji = '🕑';
                 text = 'немає світла (2-а половина)';
+                hoursWithoutLight += 0.5;
+                hoursWithLight += 0.5;
             }
 
             lines.push(`${emoji} ${hour}:00 - ${text}`);
         }
+
+        // Додаємо статистику
+        lines.push('');
+        lines.push(`📊 **Статистика:**`);
+        lines.push(`💡 Зі світлом: ${hoursWithLight} год`);
+        lines.push(`🌚 Без світла: ${hoursWithoutLight} год`);
 
         return lines.join('\n');
     }

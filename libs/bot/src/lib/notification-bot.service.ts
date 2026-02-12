@@ -1487,12 +1487,8 @@ export class NotificationBotService implements OnModuleInit {
 
   /**
    * Відправляє повідомлення про оновлення графіку з зображенням
-   * @param message - Текст повідомлення
-   * @param imageUrl - URL зображення
    */
   public async sendScheduleUpdateWithImage(message: string, imageUrl: string): Promise<void> {
-    this.logger.log(`[OutageData] Sending schedule update with image: ${imageUrl}`);
-
     try {
       // Ітеруємо по всіх місцях, для яких є кеш підписників  
       for (const placeId in this.subscriberCache) {
