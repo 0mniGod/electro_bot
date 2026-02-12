@@ -1366,72 +1366,23 @@ export class NotificationBotService implements OnModuleInit {
       });
       // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /update ---
 
-      // --- ДОДАЄМО НОВИЙ ОБРОБНИК ДЛЯ /schedule ---
+      // --- ОБРОБНИК ДЛЯ /schedule (OUTAGE-DATA) ---
       telegramBot.onText(/\/schedule/, async (msg) => {
-        const userId = msg.from?.id;
-        const chatId = msg.chat.id;
-        this.logger.log(`Received /schedule command from user ${userId} in chat ${chatId} for place ${place.id}`);
+        this.logger.log(`Received /schedule command from user ${msg.from?.id} in chat ${msg.chat.id} for place ${place.id}`);
 
-        // (Тут ваша перевірка на адміна)
-        // ...
-
-        try {
-          await telegramBot.sendMessage(chatId, '🔄 Запускаю завантаження графіків з API (svitlo-proxy)...');
-
-          // 1. Завантажуємо графіки
-          const success = await this.scheduleCacheService.fetchAndCacheSchedules();
-
-          if (success) {
-            this.logger.log(`[ScheduleCommand] Fetch successful. Generating schedule text for chat ${chatId}.`);
-
-            // Використовуємо ті самі хардкод-ключі, що й для /current
-            const PLACE_ID_TO_SCHEDULE = "001";
-            const REGION_KEY = "kyiv";
-            const QUEUE_KEY = "2.1"; // <--- Або ваша група
-
-            let scheduleTodayString = "<i>Графік на сьогодні не знайдено.</i>";
-            let scheduleTomorrowString = "<i>Графік на завтра не знайдено.</i>"; // <-- Нова змінна
-
-            if (place.id === PLACE_ID_TO_SCHEDULE) {
-              try {
-                // Отримуємо графік на сьогодні
-                scheduleTodayString = this.scheduleCacheService.getTodaysScheduleAsText(
-                  REGION_KEY,
-                  QUEUE_KEY
-                );
-                // Отримуємо графік на завтра
-                scheduleTomorrowString = this.scheduleCacheService.getTomorrowsScheduleAsText(
-                  REGION_KEY,
-                  QUEUE_KEY
-                );
-              } catch (e) {
-                this.logger.error(`[ScheduleCommand] Error generating schedule text: ${e}`);
-                scheduleTodayString = "<i>Помилка при генерації графіка.</i>";
-                scheduleTomorrowString = "<i>Помилка при генерації графіка.</i>";
-              }
-            }
-
-            // 3. Створюємо фінальне повідомлення з обома графіками
-            const responseMessage = `✅ Графіки успішно оновлено.\n\n` +
-              `<b>--- Графік на сьогодні ---</b>\n` +
-              `${scheduleTodayString}\n\n` +
-              `<b>--- Графік на завтра ---</b>\n` +
-              `${scheduleTomorrowString}`;
-
-            await telegramBot.sendMessage(chatId, responseMessage, { parse_mode: 'HTML' });
-
-            this.logger.log(`/schedule command processed successfully for place ${place.id}`);
-          } else {
-            // (Помилка завантаження)
-            await telegramBot.sendMessage(chatId, '❌ Не вдалося завантажити графіки. API (svitlo-proxy) не відповідає.');
-            this.logger.warn(`/schedule command FAILED for place ${place.id} (API error).`);
-          }
-        } catch (error) {
-          this.logger.error(`Error during /schedule command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-          await telegramBot.sendMessage(chatId, '❌ Сталася внутрішня помилка. Перевірте логи.');
-        }
+        // Викликаємо новий метод для outage-data
+        await this.handleScheduleCommand(msg);
       });
-      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /schedule ---      
+      // --- КІНЕЦЬ ОБРОБНИКА /schedule ---
+
+      // --- ОБРОБНИК ДЛЯ /changegroupgpv (OUTAGE-DATA) ---
+      telegramBot.onText(/\/changegroupgpv(.*)/, async (msg) => {
+        this.logger.log(`Received /changegroupgpv command from user ${msg.from?.id} in chat ${msg.chat.id} for place ${place.id}`);
+
+        // Викликаємо метод для зміни GPV групи
+        await this.handleChangeGroupGPVCommand(msg);
+      });
+      // --- КІНЕЦЬ ОБРОБНИКА /changegroupgpv ---
 
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
@@ -1519,10 +1470,121 @@ export class NotificationBotService implements OnModuleInit {
     }
   }
 
+  // ===================================================================
+  // OUTAGE-DATA: Методи для роботи з outage-data-ua
+  // ===================================================================
+
+  /**
+   * Відправляє повідомлення про оновлення графіку з зображенням усім підписникам
+   */
+  public async sendScheduleUpdateWithImage(message: string, imageUrl: string): Promise<void> {
+    this.logger.log(`[OutageData] Sending schedule update with image`);
+
+    try {
+      for (const placeId in this.subscriberCache) {
+        const placeSubscribers = this.subscriberCache[placeId];
+        if (placeSubscribers && placeSubscribers.length > 0) {
+          const botEntry = this.placeBots[placeId];
+
+          if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) {
+            continue;
+          }
+
+          for (const chatId of placeSubscribers) {
+            try {
+              await botEntry.telegramBot.sendPhoto(chatId, imageUrl, {
+                caption: message,
+                parse_mode: 'Markdown'
+              });
+            } catch (error) {
+              this.logger.error(`[OutageData] Failed to send to chat ${chatId}: ${error}`);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`[OutageData] Error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Обробник команди /schedule для отримання поточного графіка
+   */
+  public async handleScheduleCommand(message: any): Promise<void> {
+    const chatId = message.chat.id;
+    const placeId = Object.keys(this.subscriberCache).find(pid =>
+      this.subscriberCache[pid]?.includes(chatId)
+    );
+
+    if (!placeId) return;
+
+    const botEntry = this.placeBots[placeId];
+    if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) return;
+
+    const bot = botEntry.telegramBot;
+
+    try {
+      const gpvConfigService = (this.electricityAvailabilityService as any).scheduleCacheService?.gpvConfigService;
+      const outageDataService = (this.electricityAvailabilityService as any).scheduleCacheService?.outageDataService;
+
+      if (!gpvConfigService || !outageDataService) {
+        await bot.sendMessage(chatId, '❌ Помилка: сервіси недоступні.');
+        return;
+      }
+
+      if (!gpvConfigService.isConfigured()) {
+        await bot.sendMessage(chatId,
+          '⚠️ GPV група не налаштована.\\n\\nВикористайте `/changegroupgpv <номер>`.\\n\\nПриклад: `/changegroupgpv 28.1`',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const gpvGroup = gpvConfigService.getGpvGroup();
+      if (!gpvGroup) {
+        await bot.sendMessage(chatId, '❌ Помилка отримання GPV групи.');
+        return;
+      }
+
+      const rawData = await outageDataService.fetchKyivSchedule();
+      if (!rawData) {
+        await bot.sendMessage(chatId, '❌ Не вдалося завантажити графік з GitHub.');
+        return;
+      }
+
+      const schedule = outageDataService.parseGroupSchedule(gpvGroup);
+      if (!schedule) {
+        await bot.sendMessage(chatId, `❌ Графік для GPV${gpvGroup} не знайдено.`);
+        return;
+      }
+
+      const scheduleText = outageDataService.formatScheduleText(schedule);
+      const imageUrl = outageDataService.getImageUrl(gpvGroup);
+
+      const msg = `📋 **Графік відключень GPV${gpvGroup}**\\n\\n${scheduleText}\\n\\n_Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
+
+      if (imageUrl) {
+        try {
+          await bot.sendPhoto(chatId, imageUrl, {
+            caption: msg,
+            parse_mode: 'Markdown'
+          });
+        } catch (photoError) {
+          await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+        }
+      } else {
+        await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+      }
+    } catch (error: any) {
+      this.logger.error(`[Schedule] Error: ${error.message}`);
+      await bot.sendMessage(chatId, `❌ Помилка: ${error.message}`);
+    }
+  }
+
   /**
    * Обробник команди /ChangeGroupGPV для зміни GPV групи
    */
-  private async handleChangeGroupGPVCommand(message: any): Promise<void> {
+  public async handleChangeGroupGPVCommand(message: any): Promise<void> {
     const chatId = message.chat.id;
     const placeId = Object.keys(this.subscriberCache).find(pid =>
       this.subscriberCache[pid]?.includes(chatId)
