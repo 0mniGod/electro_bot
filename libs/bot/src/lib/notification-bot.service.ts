@@ -1597,7 +1597,9 @@ _Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
       // Валідуємо формат
       if (!gpvConfigService.validateGpvGroupFormat(groupInput)) {
         await bot.sendMessage(chatId,
-          `❌ Невірний формат групи.\\n\\nФормат має бути "число.число", наприклад: \`1.1\`, \`28.1\``,
+          `❌ Невірний формат групи.
+
+Формат має бути "число.число", наприклад: \`1.1\`, \`28.1\``,
           { parse_mode: 'Markdown' }
         );
         return;

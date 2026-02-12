@@ -118,6 +118,7 @@ export class OutageDataService {
             this.logger.log(`[OutageData] Parsed schedule for ${formattedGroupKey}, timestamp: ${latestTimestamp}`);
             this.logger.log(`[OutageData] Schedule keys: ${Object.keys(schedule).length} hours`);
             this.logger.log(`[OutageData] First 3 hours: ${JSON.stringify(Object.entries(schedule).slice(0, 3))}`);
+            this.logger.log(`[OutageData] FULL SCHEDULE: ${JSON.stringify(schedule)}`);
 
             return {
                 timestamp: latestTimestamp,
