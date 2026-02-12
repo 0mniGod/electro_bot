@@ -70,7 +70,7 @@ const HARDCODED_PLACE: Place = {
 const HARDCODED_BOT: Bot = {
   id: "bot_001",
   placeId: "001",
-  token: process.env.BOT_TOKEN,
+  token: process.env.BOT_TOKEN || '',
   botName: "OmniLightBot",
   isEnabled: true,
   isPublicallyListed: false
@@ -1186,10 +1186,10 @@ export class NotificationBotService implements OnModuleInit {
             // (Логіка зупинки старого бота...)
             try {
               if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).stopPolling === 'function') {
-                await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
+                await (existingEntry.telegramBot as any).stopPolling({ cancel: true }).catch((stopError: any) => this.logger.error(`Non-critical error stopping previous instance polling for place ${place.id}: ${stopError}`));
               }
               if (existingEntry.telegramBot && typeof (existingEntry.telegramBot as any).close === 'function') {
-                await (existingEntry.telegramBot as any).close().catch(closeError => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
+                await (existingEntry.telegramBot as any).close().catch((closeError: any) => this.logger.error(`Non-critical error closing previous instance for place ${place.id}: ${closeError}`));
               }
             } catch (stopError) { this.logger.error(`Error stopping/closing previous instance for place ${place.id}: ${stopError}`); }
             // Створюємо новий
@@ -1220,10 +1220,10 @@ export class NotificationBotService implements OnModuleInit {
           const instanceToStop = this.placeBots[placeId]?.telegramBot;
           try {
             if (instanceToStop && typeof (instanceToStop as any).stopPolling === 'function') {
-              await (instanceToStop as any).stopPolling({ cancel: true }).catch(stopError => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
+              await (instanceToStop as any).stopPolling({ cancel: true }).catch((stopError: any) => this.logger.error(`Non-critical error stopping removed/disabled instance polling for place ${placeId}: ${stopError}`));
             }
             if (instanceToStop && typeof (instanceToStop as any).close === 'function') {
-              await (instanceToStop as any).close().catch(closeError => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
+              await (instanceToStop as any).close().catch((closeError: any) => this.logger.error(`Non-critical error closing removed/disabled instance for place ${placeId}: ${closeError}`));
             }
           } catch (stopError) { this.logger.error(`Error stopping/closing removed/disabled instance for place ${placeId}: ${stopError}`); }
         }

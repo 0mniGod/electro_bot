@@ -116,7 +116,7 @@ export class OutageDataService {
                 return null;
             }
 
-            const schedule = timestampData[formattedGroupKey];
+            const schedule = this.normalizeSchedule(timestampData[formattedGroupKey]);
 
             this.logger.log(`[OutageData] Parsed schedule for ${formattedGroupKey}, timestamp: ${todayTimestamp}`);
             this.logger.log(`[OutageData] Schedule keys: ${Object.keys(schedule).length} hours`);
@@ -294,7 +294,7 @@ export class OutageDataService {
                 return null;
             }
 
-            const schedule = timestampData[formattedGroupKey];
+            const schedule = this.normalizeSchedule(timestampData[formattedGroupKey]);
 
             return {
                 timestamp: timestamp.toString(),
@@ -306,6 +306,28 @@ export class OutageDataService {
             this.logger.error(`[OutageData] Failed to parse schedule for timestamp ${timestamp}: ${error.message}`);
             return null;
         }
+    }
+
+    /**
+     * Нормалізує ключі графіку (1..24 -> 0..23)
+     */
+    private normalizeSchedule(schedule: { [hour: string]: string }): { [hour: string]: string } {
+        const keys = Object.keys(schedule).map(Number);
+        if (keys.length === 0) return schedule;
+
+        const minKey = Math.min(...keys);
+        const maxKey = Math.max(...keys);
+
+        // Якщо ключі 1..24, зміщуємо на -1 (0..23)
+        if (minKey === 1 && maxKey === 24) {
+            const normalized: { [hour: string]: string } = {};
+            for (const key of Object.keys(schedule)) {
+                const newKey = String(parseInt(key) - 1);
+                normalized[newKey] = schedule[key];
+            }
+            return normalized;
+        }
+        return schedule;
     }
 
     /**
