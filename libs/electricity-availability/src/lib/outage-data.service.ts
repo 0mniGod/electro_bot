@@ -143,7 +143,12 @@ export class OutageDataService {
     public getImageUrl(groupKey: string): string {
         // Конвертуємо "28.1" в "gpv-28-1-emergency.png"
         const cleanKey = groupKey.replace('GPV', '').replace('.', '-');
-        return `${this.baseUrl}/images/kyiv/gpv-${cleanKey}-emergency.png`;
+
+        // Додаємо timestamp як query параметр для уникнення кешування в Telegram
+        // Використовуємо timestamp з даних або поточний час
+        const timestamp = this.cachedData?.fact?.today || Math.floor(Date.now() / 1000);
+
+        return `${this.baseUrl}/images/kyiv/gpv-${cleanKey}-emergency.png?t=${timestamp}`;
     }
 
     /**
