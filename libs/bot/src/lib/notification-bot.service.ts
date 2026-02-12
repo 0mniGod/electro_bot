@@ -1520,9 +1520,10 @@ export class NotificationBotService implements OnModuleInit {
         return;
       }
 
-      // Використовуємо новий форматер з періодами
       const scheduleText = outageDataService.formatScheduleWithPeriods(schedule);
       const imageUrl = outageDataService.getImageUrl(gpvGroup);
+
+      const lastUpdatedFormatted = outageDataService.formatLastUpdated(schedule.updateFact || schedule.lastUpdated);
 
       let msg = `📋 **Графік відключень сьогодні**
 
@@ -1530,7 +1531,7 @@ export class NotificationBotService implements OnModuleInit {
 
 ${scheduleText}
 
-_Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
+_Оновлено: ${lastUpdatedFormatted}_`;
 
       // Перевіряємо чи є завтрашній графік
       const tomorrowTimestamp = outageDataService.getTomorrowTimestamp();

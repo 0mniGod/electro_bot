@@ -459,11 +459,11 @@ export class OutageDataService {
 
             let prefixEmoji: string;
             if (period.isPast) {
-                prefixEmoji = '⏮️'; // Минуле
+                prefixEmoji = '⏪'; // Минуле
             } else if (period.isCurrent) {
-                prefixEmoji = '▶️'; // Поточне
+                prefixEmoji = '✅'; // Поточне
             } else {
-                prefixEmoji = '⏭️'; // Майбутнє
+                prefixEmoji = '⏩'; // Майбутнє
             }
 
             let statusEmoji: string;
@@ -485,5 +485,38 @@ export class OutageDataService {
         lines.push(`🌚 Без світла: ${hoursWithoutLight.toFixed(1)} год`);
 
         return lines.join('\n');
+    }
+
+    /**
+     * Форматує дату оновлення у відносний час (наприклад, "23 хвилини тому")
+     */
+    public formatLastUpdated(isoString: string): string {
+        const updated = new Date(isoString);
+        const now = new Date();
+        const diffMs = now.getTime() - updated.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+        if (diffMinutes < 1) {
+            return 'щойно';
+        } else if (diffMinutes < 60) {
+            return `${diffMinutes} хв тому`;
+        } else {
+            const diffHours = Math.floor(diffMinutes / 60);
+            if (diffHours < 24) {
+                const remainingMinutes = diffMinutes % 60;
+                if (remainingMinutes === 0) {
+                    return `${diffHours} год тому`;
+                }
+                return `${diffHours} год ${remainingMinutes} хв тому`;
+            } else {
+                // Якщо більше доби - показуємо дату
+                return updated.toLocaleString('uk-UA', {
+                    day: 'numeric',
+                    month: 'long',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+        }
     }
 }
