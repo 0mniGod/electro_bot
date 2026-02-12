@@ -11,6 +11,7 @@ export class TomorrowScheduleTrackerService {
     private readonly logger = new Logger(TomorrowScheduleTrackerService.name);
     private lastKnownTomorrowTimestamp: number | null = null;
     private lastNotificationMessage: string | null = null;
+    private lastNotificationImageUrl: string | null = null;
 
     constructor(
         private readonly outageDataService: OutageDataService,
@@ -37,6 +38,12 @@ export class TomorrowScheduleTrackerService {
         const message = this.lastNotificationMessage;
         this.lastNotificationMessage = null;
         return message;
+    }
+
+    public getAndClearLastNotificationImageUrl(): string | null {
+        const url = this.lastNotificationImageUrl;
+        this.lastNotificationImageUrl = null;
+        return url;
     }
 
     /**
@@ -79,21 +86,19 @@ export class TomorrowScheduleTrackerService {
             return;
         }
 
-        // Генеруємо повідомлення
-        const message = this.generateTomorrowNotificationMessage(gpvGroup, tomorrowSchedule.schedule);
-
-        // Зберігаємо для відправки
-        this.lastNotificationMessage = message;
-
-        // Запам'ятовуємо що вже повідомили
+        // Генерувати повідомлення та URL картинки
+        const notificationData = this.generateTomorrowNotificationMessage(gpvGroup, tomorrowSchedule.schedule);
+        this.lastNotificationMessage = notificationData.message;
+        this.lastNotificationImageUrl = notificationData.imageUrl;
         this.lastKnownTomorrowTimestamp = tomorrowTimestamp;
+
         this.logger.log('[TomorrowTracker] Tomorrow schedule notification prepared');
     }
 
     /**
-     * Генерує текст повідомлення про завтрашній графік
+     * Генерує текст повідомлення про завтрашній графік та URL картинки
      */
-    private generateTomorrowNotificationMessage(groupKey: string, schedule: { [hour: string]: string }): string {
+    private generateTomorrowNotificationMessage(groupKey: string, schedule: { [hour: string]: string }): { message: string, imageUrl: string } {
         const parsedSchedule = {
             timestamp: 'tomorrow',
             schedule: schedule,
@@ -106,8 +111,14 @@ export class TomorrowScheduleTrackerService {
         tomorrowDate.setDate(tomorrowDate.getDate() + 1);
         tomorrowDate.setHours(0, 0, 0, 0);
 
+        // Додати дату завтра (форматуємо як "13.02")
+        const tomorrowDateStr = tomorrowDate.toLocaleDateString('uk-UA', { day: 'numeric', month: 'numeric' });
+
         const formattedSchedule = this.outageDataService.formatScheduleWithPeriods(parsedSchedule, tomorrowDate);
 
-        return `📅 **Графік на завтра став доступний!**\n\nГрупа: ${groupKey}\n\n${formattedSchedule}`;
+        const message = `📅 **Графік на завтра (${tomorrowDateStr}) став доступний!**\n\nГрупа: ${groupKey}\n\n${formattedSchedule}`;
+        const imageUrl = this.outageDataService.getImageUrl(groupKey);
+
+        return { message, imageUrl };
     }
 }

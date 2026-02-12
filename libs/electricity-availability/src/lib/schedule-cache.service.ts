@@ -177,7 +177,8 @@ export class ScheduleCacheService implements OnModuleInit {
             `_Оновлено: ${lastUpdatedFormatted}_`;
 
           this.logger.log(`[ScheduleCache] Sending startup notification for group ${gpvGroup}`);
-          await this.notificationBotService.sendScrapedNotification(msg);
+          const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
+          await this.notificationBotService.sendScheduleUpdateWithImage(msg, imageUrl);
           this.logger.log('[ScheduleCache] Startup notification sent successfully');
         }
         // -------------------------------------------
@@ -214,14 +215,23 @@ export class ScheduleCacheService implements OnModuleInit {
         msg += `_Оновлено: ${lastUpdatedFormatted}_`;
 
         this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
-        await this.notificationBotService.sendScrapedNotification(msg);
+        const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
+        await this.notificationBotService.sendScheduleUpdateWithImage(msg, imageUrl);
       }
 
       // Перевіряємо чи є готове повідомлення про завтрашній графік
       const tomorrowMessage = this.tomorrowScheduleTracker.getAndClearLastNotification();
+      const tomorrowImageUrl = this.tomorrowScheduleTracker.getAndClearLastNotificationImageUrl();
+
       if (tomorrowMessage && notifyUsers) {
         this.logger.log(`[ScheduleCache] Sending tomorrow schedule notification`);
-        await this.notificationBotService.sendScrapedNotification(tomorrowMessage);
+
+        if (tomorrowImageUrl) {
+          await this.notificationBotService.sendScheduleUpdateWithImage(tomorrowMessage, tomorrowImageUrl);
+        } else {
+          // Fallback to text-only if image URL is missing
+          await this.notificationBotService.sendScrapedNotification(tomorrowMessage);
+        }
       }
 
       return true;
