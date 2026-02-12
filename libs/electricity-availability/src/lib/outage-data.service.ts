@@ -105,6 +105,9 @@ export class OutageDataService {
             // Формуємо ключ групи у правильному форматі
             const formattedGroupKey = groupKey.startsWith('GPV') ? groupKey : `GPV${groupKey}`;
 
+            this.logger.log(`[OutageData] Looking for key: "${formattedGroupKey}"`);
+            this.logger.log(`[OutageData] Available keys in timestamp data: ${Object.keys(timestampData).join(', ')}`);
+
             if (!timestampData[formattedGroupKey]) {
                 this.logger.warn(`[OutageData] Group ${formattedGroupKey} not found in data`);
                 return null;
@@ -113,6 +116,8 @@ export class OutageDataService {
             const schedule = timestampData[formattedGroupKey];
 
             this.logger.log(`[OutageData] Parsed schedule for ${formattedGroupKey}, timestamp: ${latestTimestamp}`);
+            this.logger.log(`[OutageData] Schedule keys: ${Object.keys(schedule).length} hours`);
+            this.logger.log(`[OutageData] First 3 hours: ${JSON.stringify(Object.entries(schedule).slice(0, 3))}`);
 
             return {
                 timestamp: latestTimestamp,
