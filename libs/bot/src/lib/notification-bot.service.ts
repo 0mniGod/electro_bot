@@ -1437,44 +1437,6 @@ export class NotificationBotService implements OnModuleInit {
   // ===================================================================
 
   /**
-   * Відправляє повідомлення про оновлення графіку з зображенням
-   */
-  public async sendScheduleUpdateWithImage(message: string, imageUrl: string): Promise<void> {
-    try {
-      // Ітеруємо по всіх місцях, для яких є кеш підписників  
-      for (const placeId in this.subscriberCache) {
-        const placeSubscribers = this.subscriberCache[placeId];
-        if (placeSubscribers && placeSubscribers.length > 0) {
-          const botEntry = this.placeBots[placeId];
-
-          if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) {
-            this.logger.warn(`[OutageData] No active bot found for place ${placeId}`);
-            continue;
-          }
-
-          for (const chatId of placeSubscribers) {
-            try {
-              await botEntry.telegramBot.sendPhoto(chatId, imageUrl, {
-                caption: message,
-                parse_mode: 'Markdown'
-              });
-              this.logger.log(`[OutageData] Sent update to chat ${chatId}`);
-            } catch (error) {
-              this.logger.error(`[OutageData] Failed to send to chat ${chatId}: ${error}`);
-            }
-          }
-        }
-      }
-    } catch (error: any) {
-      this.logger.error(`[OutageData] Error sending schedule update: ${error.message}`, error.stack);
-    }
-  }
-
-  // ===================================================================
-  // OUTAGE-DATA: Методи для роботи з outage-data-ua
-  // ===================================================================
-
-  /**
    * Відправляє повідомлення про оновлення графіку з зображенням усім підписникам
    */
   public async sendScheduleUpdateWithImage(message: string, imageUrl: string): Promise<void> {
