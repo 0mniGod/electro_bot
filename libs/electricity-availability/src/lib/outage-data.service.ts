@@ -489,12 +489,15 @@ export class OutageDataService {
             }
 
             let statusEmoji: string;
+            const calcEndHour = period.endHour === 0 ? 24 : period.endHour;
+            const duration = (calcEndHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
+
             if (period.status === 'yes') {
                 statusEmoji = '💡';
-                hoursWithLight += (period.endHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
+                hoursWithLight += duration;
             } else {
                 statusEmoji = '🌚';
-                hoursWithoutLight += (period.endHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
+                hoursWithoutLight += duration;
             }
 
             lines.push(`${prefixEmoji} ${startTime} - ${endTime} ${statusEmoji}`);
