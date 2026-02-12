@@ -251,13 +251,13 @@ export const EXPECTED_ENABLE_MOMENT = (params: {
 }) =>
   // 1. Пріоритет - ГАРАНТОВАНЕ включення.
   params.scheduleEnableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на включення о ${format(
+    ? `\nЗгідно графіка очікуємо на включення о ${format(
       params.scheduleEnableMoment,
       'HH:mm'
     )}.\n`
     // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
     : params.schedulePossibleEnableMoment
-      ? `\nЗгідно графіка Yasno очікуємо на можливе включення о ${format(
+      ? `\nЗгідно графіка очікуємо на можливе включення о ${format(
         params.schedulePossibleEnableMoment,
         'HH:mm'
       )} (сіра зона).\n`
@@ -269,13 +269,13 @@ export const EXPECTED_DISABLE_MOMENT = (params: {
 }) =>
   // 1. Пріоритет - ГАРАНТОВАНЕ вимкнення.
   params.scheduleDisableMoment
-    ? `\nЗгідно графіка Yasno очікуємо на вимкнення о ${format(
+    ? `\nЗгідно графіка очікуємо на вимкнення о ${format(
       params.scheduleDisableMoment,
       'HH:mm'
     )}.\n`
     // 2. Якщо його нема, але є "можливе" - показуємо "можливе".
     : params.schedulePossibleDisableMoment
-      ? `\nЗгідно графіка Yasno очікуємо на можливе вимкнення о ${format(
+      ? `\nЗгідно графіка очікуємо на можливе вимкнення о ${format(
         params.schedulePossibleDisableMoment,
         'HH:mm'
       )} (сіра зона).\n`

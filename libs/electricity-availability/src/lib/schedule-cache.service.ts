@@ -103,209 +103,272 @@ export class ScheduleCacheService implements OnModuleInit {
     await this.fetchAndCacheSchedules();
   }
 
-  @Cron('*/30 * * * *') // Раз на 30 хвилин
+  @Cron('*/15 * * * *') // Раз на 15 хвилин (синхронізовано з OutageData)
   public async fetchAndCacheSchedules(notifyUsers: boolean = true): Promise<boolean> {
     if (this.isFetching) {
       this.logger.warn('[ScheduleCache] Fetch already in progress. Skipping.');
       return false;
     }
     this.isFetching = true;
-    this.logger.log(`[ScheduleCache] Fetching new schedules from ${API_URL}...`);
-
-    // --- 💡 ПОЧАТОК НОВОЇ ЛОГІКИ 💡 ---
-    // Наші цільові регіон та черга
-    const MY_REGION_KEY = 'kyiv';
-    const MY_QUEUE_KEY = '2.1';
-
-    // Допоміжна функція для витягування ТІЛЬКИ НАШОГО графіка
-    const getMyScheduleForDate = (cache: ScheduleCache | null, date: string): { json: string; hasData: boolean } => {
-      if (!cache || !cache.regions || !date) return { json: "{}", hasData: false };
-
-      try {
-        // 1. Знаходимо наш регіон
-        const region = cache.regions.find(r => r.cpu === MY_REGION_KEY);
-        if (!region || !region.schedule) return { json: "{}", hasData: false };
-
-        // 2. Знаходимо нашу чергу
-        const queueSchedule = region.schedule[MY_QUEUE_KEY];
-        if (!queueSchedule || !queueSchedule[date]) return { json: "{}", hasData: false };
-
-        // 3. Сортуємо ключі ЧАСУ (00:00, 00:30...)
-        const slots = queueSchedule[date];
-        const sortedTimeKeys = Object.keys(slots).sort();
-
-        if (sortedTimeKeys.length === 0) {
-          return { json: "{}", hasData: false };
-        }
-
-        // --- 💡 ВИПРАВЛЕННЯ: "hasData" = true ТІЛЬКИ якщо є '1' або '2' ---
-        let hasRealData = false;
-        const stableSlots = {};
-        for (const timeKey of sortedTimeKeys) {
-          const status = slots[timeKey];
-          stableSlots[timeKey] = status;
-          if (status === LightStatus.ON || status === LightStatus.OFF) {
-            hasRealData = true; // Знайшли реальні дані!
-          }
-        }
-        return { json: JSON.stringify(stableSlots), hasData: hasRealData };
-        // --- 💡 КІНЕЦЬ ВИПРАВЛЕННЯ ---
-
-      } catch (e) {
-        this.logger.error(`[ScheduleCache] Failed to extract ${MY_REGION_KEY}/${MY_QUEUE_KEY} for ${date}`, e);
-        return { json: "{}", hasData: false }; // Повертаємо порожній об'єкт у разі помилки
-      }
-    };
-    // --- 💡 КІНЕЦЬ НОВОЇ ЛОГІКИ 💡 ---
-
+    this.logger.log(`[ScheduleCache] Checking for schedule updates (OutageData)...`);
 
     try {
-      const requestOptions = {
-        timeout: 45000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
-          'Accept-Encoding': 'identity'
-        },
-        decompress: false
-      };
-
-      this.logger.debug(`[ScheduleCache] Fetching with options: ${JSON.stringify(requestOptions)}`);
-
-      const response = await firstValueFrom(
-        this.httpService.get<ScheduleCache>(API_URL, requestOptions)
-      );
-
-      this.logger.debug(`[ScheduleCache] Raw response status: ${response.status}`);
-      // this.logger.debug(`[ScheduleCache] Raw response data...`);
-
-      const responseData = response.data;
-
-      if (responseData && responseData.regions) {
-
-        const newTodayDate = responseData.date_today;
-        const newTomorrowDate = responseData.date_tomorrow;
-
-        let todayScheduleHasChanged = false;
-        let newScheduleForTomorrowAppeared = false;
-        let rolledOverDate: string | null = null;
-
-        // 1. Очищуємо старі дати
-        this.notifiedTomorrowDates.forEach(date => {
-          if (date <= newTodayDate) {
-            this.logger.log(`[ScheduleCache] Clearing old notified date: ${date}`);
-            this.notifiedTomorrowDates.delete(date);
-            if (date === newTodayDate) {
-              rolledOverDate = date;
-            }
-          }
-        });
-
-        // 2. Перевіряємо, чи змінився графік на "СЬОГОДНІ"
-        const { json: oldTodaySlotsJson, hasData: oldTodayHasData } = getMyScheduleForDate(this.scheduleCache, newTodayDate);
-        const { json: newTodaySlotsJson, hasData: newTodayHasData } = getMyScheduleForDate(responseData, newTodayDate);
-
-        if (rolledOverDate === newTodayDate) {
-          this.logger.log(`[ScheduleCache] Today's date (${newTodayDate}) just rolled over. Suppressing "Today" change check.`);
-          todayScheduleHasChanged = false;
-        }
-        else if (newTodayHasData && oldTodaySlotsJson !== newTodaySlotsJson) {
-          this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has changed or appeared.`);
-          todayScheduleHasChanged = true;
-        } else {
-          this.logger.log(`[ScheduleCache] My schedule for TODAY (${newTodayDate}) has NOT changed.`);
-        }
-
-
-        // 3. Перевіряємо, чи з'явився графік на "ЗАВТРА"
-        if (newTomorrowDate && !this.notifiedTomorrowDates.has(newTomorrowDate)) {
-          const { json: newTomorrowSlotsJson, hasData: newTomorrowHasData } = getMyScheduleForDate(responseData, newTomorrowDate);
-
-          if (newTomorrowHasData) {
-            const { json: oldTomorrowSlotsJson } = getMyScheduleForDate(this.scheduleCache, newTomorrowDate);
-            if (newTomorrowSlotsJson !== oldTomorrowSlotsJson) {
-              this.logger.log(`[ScheduleCache] New schedule for TOMORROW (${newTomorrowDate}) detected AND data exists. Will notify.`);
-              newScheduleForTomorrowAppeared = true;
-              if (notifyUsers) {
-                this.notifiedTomorrowDates.add(newTomorrowDate);
-              }
-            } else {
-              this.logger.log(`[ScheduleCache] Schedule for TOMORROW (${newTomorrowDate}) exists, but is identical to cache. Suppressing notification.`);
-              if (notifyUsers) {
-                this.notifiedTomorrowDates.add(newTomorrowDate);
-              }
-            }
-          } else {
-            this.logger.log(`[ScheduleCache] 'date_tomorrow' is ${newTomorrowDate}, but no actual schedule data was found for it. Suppressing notification.`);
-          }
-        }
-
-        // 4. Зберігаємо НОВІ дані в кеш
-        this.scheduleCache = responseData;
-
-        // 5. Логіка сповіщень
-        if (notifyUsers) {
-          try {
-            const updateMessages: string[] = [];
-
-            if (todayScheduleHasChanged) {
-              const dateTodayStr = format(new Date(newTodayDate), 'dd.MM');
-              const scheduleText = this.getTodaysScheduleAsText(MY_REGION_KEY, MY_QUEUE_KEY);
-
-              let msg = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**`;
-
-              // Diff logic
-              if (oldTodayHasData) {
-                const diff = this.generateScheduleDiff(oldTodaySlotsJson, newTodaySlotsJson);
-                if (diff) {
-                  msg += `\n\n**Зміни:**\n${diff}`;
-                }
-              }
-
-              msg += `\n\n**Новий графік:**\n${scheduleText}`;
-              updateMessages.push(msg);
-            }
-
-            if (newScheduleForTomorrowAppeared) {
-              const dateTomorrowStr = format(new Date(newTomorrowDate), 'dd.MM');
-              const scheduleText = this.getTomorrowsScheduleAsText(MY_REGION_KEY, MY_QUEUE_KEY);
-              updateMessages.push(`💡 **З'явився графік на завтра (${dateTomorrowStr})!**\n\n${scheduleText}`);
-            }
-
-            if (updateMessages.length > 0) {
-              const finalMessage = updateMessages.join('\n\n');
-              this.logger.log(`[ScheduleCache] Sending notification: "${finalMessage}"`);
-              await this.notificationBotService.sendScrapedNotification(finalMessage);
-            } else {
-              this.logger.log('[ScheduleCache] No significant changes found to notify.');
-            }
-          } catch (notifyError) {
-            this.logger.error(`[ScheduleCache] Failed to send notification (but cache was updated): ${notifyError}`);
-          }
-        }
-        return true; // Успіх
-
-      } else {
-        this.logger.warn('[ScheduleCache] Fetched schedule data is empty or invalid.');
+      // 1. Отримуємо налаштовану групу
+      const gpvGroup = this.gpvConfigService.getGpvGroup();
+      if (!gpvGroup) {
+        this.logger.debug('[ScheduleCache] No GPV group configured. Skipping update check.');
         return false;
       }
 
-    } catch (error: any) {
-
-      this.logger.error(`[ScheduleCache] === FETCH FAILED ===`);
-      if (error.isAxiosError) {
-        this.logger.error(`[ScheduleCache] Axios Error Code: ${error.code}`);
-        this.logger.error(`[ScheduleCache] Axios Status: ${error.response?.status}`);
-        this.logger.error(`[ScheduleCache] Axios Message: ${error.message}`);
-        this.logger.error(`[ScheduleCache] Request Config: ${JSON.stringify(error.config, (key, value) => key === 'data' ? undefined : value)}`);
-      } else {
-        this.logger.error(`[ScheduleCache] Unknown Error: ${error}`, error instanceof Error ? error.stack : undefined);
+      // 2. Оновлюємо дані з GitHub
+      const rawData = await this.outageDataService.fetchKyivSchedule();
+      if (!rawData) {
+        this.logger.warn('[ScheduleCache] Failed to fetch data from GitHub.');
+        return false;
       }
-      this.logger.error(`[ScheduleCache] === END FETCH FAILED ===`);
-      return false;
 
+      // 3. Парсимо графік для нашої групи (на сьогодні)
+      const currentScheduleObj = this.outageDataService.parseGroupSchedule(gpvGroup);
+      if (!currentScheduleObj) {
+        this.logger.warn(`[ScheduleCache] Failed to parse schedule for GPV${gpvGroup}.`);
+        return false;
+      }
+
+      const currentSchedule = currentScheduleObj.schedule;
+      const dateTodayStr = new Date().toLocaleDateString('uk-UA', { day: 'numeric', month: 'numeric' });
+
+      // 4. Перевіряємо на зміни (порівнюємо з попереднім збереженим станом)
+      let scheduleChanged = false;
+      let diffText = '';
+
+      if (this.lastOutageSchedule) {
+        diffText = this.generateOutageScheduleDiff(this.lastOutageSchedule, currentSchedule);
+        if (diffText) {
+          scheduleChanged = true;
+          this.logger.log(`[ScheduleCache] Detected changes in schedule:\n${diffText}`);
+        } else {
+          this.logger.debug('[ScheduleCache] No changes in schedule.');
+        }
+      } else {
+        // Перший запуск - просто зберігаємо
+        this.logger.log('[ScheduleCache] Initial schedule fetch. Saving state.');
+        this.lastOutageSchedule = currentSchedule;
+
+        // 5a. Оновлюємо ЛЕГАСІ кеш
+        this.updateLegacyCache(currentSchedule, false);
+
+        // Спробуємо оновити і для завтра, якщо є
+        const tomorrowTimestamp = this.outageDataService.getTomorrowTimestamp();
+        if (tomorrowTimestamp) {
+          const tomorrowSchedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
+          if (tomorrowSchedule) this.updateLegacyCache(tomorrowSchedule.schedule, true);
+        }
+
+        return true;
+      }
+
+      // 5. Зберігаємо новий стан
+      this.lastOutageSchedule = currentSchedule;
+
+      // 5a. Оновлюємо ЛЕГАСІ кеш
+      this.updateLegacyCache(currentSchedule, false);
+
+      const tomorrowTimestamp = this.outageDataService.getTomorrowTimestamp();
+      if (tomorrowTimestamp) {
+        const tomorrowSchedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
+        if (tomorrowSchedule) this.updateLegacyCache(tomorrowSchedule.schedule, true);
+      }
+
+      // 6. Формуємо повідомлення, якщо були зміни
+      if (notifyUsers && scheduleChanged) {
+        // Форматуємо новий повний графік (згорнутий)
+        const fullScheduleText = this.outageDataService.formatScheduleWithPeriods(currentScheduleObj);
+
+        // Форматуємо час оновлення (відносно)
+        const lastUpdatedFormatted = this.outageDataService.formatLastUpdated(
+          currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
+        );
+
+        let msg = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**\n\n`;
+
+        msg += `**Зміни:**\n${diffText}\n\n`;
+        msg += `📋 **Новий графік:**\n${fullScheduleText}\n\n`;
+        msg += `_Оновлено: ${lastUpdatedFormatted}_`;
+
+        // 7. Додаємо інфо про завтрашній графік (якщо є)
+        const tomorrowTimestamp = this.outageDataService.getTomorrowTimestamp();
+        if (tomorrowTimestamp && !this.notifiedTomorrowDates.has(tomorrowTimestamp.toString())) {
+          const tomorrowSchedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
+
+          if (tomorrowSchedule && !this.outageDataService.isPlaceholderSchedule(tomorrowSchedule.schedule)) {
+            // Завтрашній день
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+
+            const tomorrowText = this.outageDataService.formatScheduleWithPeriods(tomorrowSchedule, tomorrow);
+
+            msg += `\n\n━━━━━━━━━━━━━\n\n💡 **З'явився графік на завтра!**\n\n${tomorrowText}`;
+
+            // Запам'ятовуємо, що ми вже повідомили про цю версію завтрашнього графіку
+            this.notifiedTomorrowDates.add(tomorrowTimestamp.toString());
+          }
+        }
+
+        this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
+        await this.notificationBotService.sendScrapedNotification(msg);
+      }
+
+      return true;
+
+    } catch (error: any) {
+      this.logger.error(`[ScheduleCache] Error in fetchAndCacheSchedules: ${error.message}`, error.stack);
+      return false;
     } finally {
       this.isFetching = false;
     }
+  }
+
+  /**
+   * Оновлює легасі кеш (this.scheduleCache) даними з нового сервісу.
+   * Це потрібно для коректної роботи findLastScheduledChange та ElectricityAvailabilityService.
+   */
+  private updateLegacyCache(schedule: Record<string, string>, isTomorrow: boolean = false): void {
+    if (!this.scheduleCache) {
+      this.scheduleCache = {
+        date_today: new Date().toISOString().split('T')[0],
+        date_tomorrow: '',
+        regions: []
+      };
+    }
+
+    const MY_REGION_KEY = 'kyiv';
+    const MY_QUEUE_KEY = '2.1';
+
+    if (!this.scheduleCache.regions) this.scheduleCache.regions = [];
+    let region = this.scheduleCache.regions.find(r => r.cpu === MY_REGION_KEY);
+    if (!region) {
+      region = { cpu: MY_REGION_KEY, schedule: { [MY_QUEUE_KEY]: {} } };
+      this.scheduleCache.regions.push(region);
+    }
+
+    // Визначаємо дату (ключ)
+    let dateKey: string;
+    if (isTomorrow) {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      // Форматуємо дату як YYYY-MM-DD з урахуванням таймзони (простий хак)
+      dateKey = d.toLocaleDateString('uk-UA').split('.').reverse().join('-');
+      if (dateKey.length < 10) dateKey = d.toISOString().split('T')[0]; // fallback
+
+      this.scheduleCache.date_tomorrow = dateKey;
+    } else {
+      dateKey = new Date().toLocaleDateString('uk-UA').split('.').reverse().join('-');
+      if (dateKey.length < 10) dateKey = new Date().toISOString().split('T')[0]; // fallback
+
+      this.scheduleCache.date_today = dateKey;
+    }
+
+    // Формуємо слоти 00:00, 00:30 ...
+    const slots: { [time: string]: number } = {};
+    const hours = Object.keys(schedule).map(Number).sort((a, b) => a - b);
+
+    for (const hour of hours) {
+      const status = schedule[hour];
+      const hourStr = String(hour).padStart(2, '0');
+
+      // 00:00
+      slots[`${hourStr}:00`] = this.mapOutageStatusToLightStatus(String(status), 1);
+      // 00:30
+      slots[`${hourStr}:30`] = this.mapOutageStatusToLightStatus(String(status), 2);
+    }
+
+    // Зберігаємо в кеш
+    if (!region.schedule) region.schedule = {};
+
+    // Ініціалізуємо об'єкт для черги, якщо його немає
+    if (!region.schedule[MY_QUEUE_KEY]) {
+      region.schedule[MY_QUEUE_KEY] = {};
+    }
+
+    region.schedule[MY_QUEUE_KEY][dateKey] = slots;
+
+    this.logger.debug(`[ScheduleCache] Updated legacy cache for ${dateKey} (isTomorrow=${isTomorrow})`);
+  }
+
+  private mapOutageStatusToLightStatus(status: string, halfHour: 1 | 2): number {
+    if (status === 'yes') return LightStatus.ON; // 1
+    if (status === 'no') return LightStatus.OFF; // 2
+    if (status === 'first') return halfHour === 1 ? LightStatus.OFF : LightStatus.ON;
+    if (status === 'second') return halfHour === 1 ? LightStatus.ON : LightStatus.OFF;
+    return LightStatus.UNKNOWN; // -1
+  }
+
+  /**
+   * Генерує текстовий опис змін між двома графіками (OutageData)
+   */
+  private generateOutageScheduleDiff(oldSchedule: { [hour: string]: string }, newSchedule: { [hour: string]: string }): string {
+    const changes: string[] = [];
+    const hours = Object.keys(newSchedule).sort((a, b) => parseInt(a) - parseInt(b));
+
+    interface ChangeBlock {
+      start: number;
+      end: number;
+      oldStatus: string;
+      newStatus: string;
+    }
+
+    let currentBlock: ChangeBlock | null = null;
+
+    for (const hourStr of hours) {
+      const hour = parseInt(hourStr);
+      const oldStatus = oldSchedule[hourStr];
+      const newStatus = newSchedule[hourStr];
+
+      if (oldStatus !== newStatus) {
+        // Початок нової зміни або продовження існуючої
+        if (currentBlock) {
+          if (currentBlock.oldStatus === oldStatus && currentBlock.newStatus === newStatus && currentBlock.end === hour) {
+            // Продовжуємо блок
+            currentBlock.end = hour + 1;
+          } else {
+            // Закриваємо попередній блок і починаємо новий
+            changes.push(this.formatOutageDiffBlock(currentBlock));
+            currentBlock = { start: hour, end: hour + 1, oldStatus, newStatus };
+          }
+        } else {
+          // Починаємо новий блок
+          currentBlock = { start: hour, end: hour + 1, oldStatus, newStatus };
+        }
+      } else {
+        // Статус не змінився, закриваємо блок якщо був
+        if (currentBlock) {
+          changes.push(this.formatOutageDiffBlock(currentBlock));
+          currentBlock = null;
+        }
+      }
+    }
+
+    if (currentBlock) {
+      changes.push(this.formatOutageDiffBlock(currentBlock));
+    }
+
+    return changes.join('\n');
+  }
+
+  private formatOutageDiffBlock(block: { start: number, end: number, oldStatus: string, newStatus: string }): string {
+    const startStr = `${String(block.start).padStart(2, '0')}:00`;
+    const endStr = `${String(block.end).padStart(2, '0')}:00`;
+
+    const getEmoji = (status: string) => {
+      if (status === 'yes') return '💡';
+      if (status === 'no') return '🌚';
+      if (status === 'first') return '🕐';
+      if (status === 'second') return '🕑';
+      return '❓';
+    };
+
+    return `${startStr} - ${endStr}: ${getEmoji(block.oldStatus)} ➡️ ${getEmoji(block.newStatus)}`;
   }
 
   /**
@@ -367,77 +430,17 @@ export class ScheduleCacheService implements OnModuleInit {
      * (КРОК 2)
      * Створює гарний рядок з графіком на сьогодні (ОНОВЛЕНО v2)
      */
+  /**
+   * Повертає графік на сьогодні у текстовому вигляді (використовує OutageDataService)
+   */
   public getTodaysScheduleAsText(regionKey: string, queueKey: string): string {
-    if (!this.scheduleCache) {
-      this.logger.warn('[ScheduleText] Schedule cache is empty.');
-      return '<i>Графік на сьогодні ще не завантажено.</i>';
-    }
+    const gpvGroup = this.gpvConfigService.getGpvGroup();
+    if (!gpvGroup) return 'Група не налаштована';
 
-    try {
-      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-      const schedule = region?.schedule[queueKey];
-      const dateTodayStr = this.scheduleCache.date_today;
-      const slotsToday = schedule ? schedule[dateTodayStr] : null;
+    const schedule = this.outageDataService.parseGroupSchedule(gpvGroup);
+    if (!schedule) return 'Графік не знайдено';
 
-      if (!slotsToday) {
-        this.logger.warn(`[ScheduleText] No schedule found for ${regionKey}/${queueKey} on ${dateTodayStr}`);
-        return '<i>Не вдалося знайти графік для вашої групи на сьогодні.</i>';
-      }
-
-      const scheduleLines: string[] = [];
-      const nowKyiv = dt_util_mock.now(TZ_KYIV);
-
-      // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
-      const currentHour = nowKyiv.getHours();
-      const currentMinute = nowKyiv.getMinutes();
-      const currentTotalMinutes = currentHour * 60 + currentMinute;
-      // --- --------------------------------- ---
-
-      for (let hour = 0; hour < 24; hour++) {
-        for (let minute = 0; minute < 60; minute += 30) {
-
-          const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-          const slotStatus: LightStatus = slotsToday[timeStr] ?? LightStatus.UNKNOWN;
-
-          let prefixEmoji: string;
-          let statusEmoji: string;
-
-          if (slotStatus === LightStatus.ON) {
-            statusEmoji = EMOJ_BULB; // 💡
-          } else if (slotStatus === LightStatus.OFF) {
-            statusEmoji = EMOJ_MOON; // 🌚
-          } else {
-            statusEmoji = EMOJ_GRAY_Q; // ❔
-          }
-
-          // --- ВИПРАВЛЕНА ЛОГІКА ПОТОЧНОГО ЧАСУ ---
-          const slotTotalMinutes = hour * 60 + minute;
-
-          // isCurrent: Поточний час знаходиться В ЦЬОМУ 30-хв слоті
-          const isCurrent = currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes < (slotTotalMinutes + 30);
-          // isPast: Початок слота ВЖЕ МИНУВ
-          const isPast = slotTotalMinutes < currentTotalMinutes;
-          // --- --------------------------------- ---
-
-          if (isCurrent) {
-            prefixEmoji = EMOJ_GREEN_CIRCLE; // 🟢
-          } else if (isPast) {
-            prefixEmoji = '🔙';
-          } else {
-            prefixEmoji = '🔜';
-          }
-
-          // Форматуємо: [Префікс] [Час]: [Статус]
-          scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
-        }
-      }
-
-      return this.compressScheduleText(scheduleLines);
-
-    } catch (error) {
-      this.logger.error(`[ScheduleText] Error building schedule string: ${error}`);
-      return '<i>Помилка при обробці графіка.</i>';
-    }
+    return this.outageDataService.formatScheduleWithPeriods(schedule);
   }
 
   /**
@@ -606,60 +609,25 @@ export class ScheduleCacheService implements OnModuleInit {
   }
 
 
+  /**
+   * Повертає графік на завтра у текстовому вигляді (використовує OutageDataService)
+   */
   public getTomorrowsScheduleAsText(regionKey: string, queueKey: string): string {
-    if (!this.scheduleCache) {
-      this.logger.warn('[ScheduleText] Schedule cache is empty.');
-      return '<i>Графік на завтра ще не завантажено.</i>';
-    }
+    const gpvGroup = this.gpvConfigService.getGpvGroup();
+    if (!gpvGroup) return 'Група не налаштована';
 
-    try {
-      const region = this.scheduleCache.regions.find(r => r.cpu === regionKey);
-      const schedule = region?.schedule[queueKey];
-      const dateTomorrowStr = this.scheduleCache.date_tomorrow;
+    const tomorrowTimestamp = this.outageDataService.getTomorrowTimestamp();
+    if (!tomorrowTimestamp) return 'Графік на завтра відсутній';
 
-      if (!dateTomorrowStr) {
-        return '<i>Дані на завтра ще не опубліковано.</i>';
-      }
+    const schedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
+    if (!schedule) return 'Графік на завтра не знайдено';
 
-      const slotsTomorrow = schedule ? schedule[dateTomorrowStr] : null;
+    // Створюємо дату завтрашнього дня для правильних заголовків
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
 
-      if (!slotsTomorrow) {
-        this.logger.warn(`[ScheduleText] No schedule found for ${regionKey}/${queueKey} on ${dateTomorrowStr}`);
-        return '<i>Не вдалося знайти графік на завтра.</i>';
-      }
-
-      const scheduleLines: string[] = [];
-      // "Завтра" - це завжди "майбутнє", тому префікс один для всіх
-      const prefixEmoji = '🔜';
-
-      for (let hour = 0; hour < 24; hour++) {
-        for (let minute = 0; minute < 60; minute += 30) {
-
-          const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-          const slotStatus: LightStatus = slotsTomorrow[timeStr] ?? LightStatus.UNKNOWN;
-
-          let statusEmoji: string;
-
-          if (slotStatus === LightStatus.ON) {
-            statusEmoji = EMOJ_BULB; // 💡
-          } else if (slotStatus === LightStatus.OFF) {
-            statusEmoji = EMOJ_MOON; // 🌚
-          } else {
-            statusEmoji = EMOJ_GRAY_Q; // ❔
-          }
-
-          // Форматуємо рядок: 🔜 00:00: 💡
-          scheduleLines.push(`${prefixEmoji} ${timeStr}: ${statusEmoji}`);
-        }
-      }
-
-      // Використовуємо той самий компресор
-      return this.compressScheduleText(scheduleLines);
-
-    } catch (error) {
-      this.logger.error(`[ScheduleText] Error building tomorrow schedule string: ${error}`);
-      return '<i>Помилка при обробці графіка на завтра.</i>';
-    }
+    return this.outageDataService.formatScheduleWithPeriods(schedule, tomorrow);
   }
 
   /**
@@ -815,8 +783,8 @@ export class ScheduleCacheService implements OnModuleInit {
    * Завантажує графіки з outage-data-ua GitHub репозиторію
    * Cron: Кожні 15 хвилин зі здвигом 5 хвилин (00:05, 00:20, 00:35, 00:50)
    */
-  @Cron('5,20,35,50 * * * *')
-  public async fetchOutageDataSchedules(notifyUsers: boolean = true): Promise<boolean> {
+  // @Cron('5,20,35,50 * * * *')
+  public async fetchOutageDataSchedules_DEPRECATED(notifyUsers: boolean = true): Promise<boolean> {
     if (this.isFetching) {
       this.logger.warn('[OutageData] Fetch already in progress. Skipping.');
       return false;
