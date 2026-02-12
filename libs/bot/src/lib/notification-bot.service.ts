@@ -1480,4 +1480,132 @@ export class NotificationBotService implements OnModuleInit {
       return Promise.resolve();
     }
   }
+
+  // ===================================================================
+  // OUTAGE-DATA: Методи для роботи з outage-data-ua
+  // ===================================================================
+
+  /**
+   * Відправляє повідомлення про оновлення графіку з зображенням
+   * @param message - Текст повідомлення
+   * @param imageUrl - URL зображення
+   */
+  public async sendScheduleUpdateWithImage(message: string, imageUrl: string): Promise<void> {
+    this.logger.log(`[OutageData] Sending schedule update with image: ${imageUrl}`);
+
+    try {
+      // Ітеруємо по всіх місцях, для яких є кеш підписників  
+      for (const placeId in this.subscriberCache) {
+        const placeSubscribers = this.subscriberCache[placeId];
+        if (placeSubscribers && placeSubscribers.length > 0) {
+          const botEntry = this.placeBots[placeId];
+
+          if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) {
+            this.logger.warn(`[OutageData] No active bot found for place ${placeId}`);
+            continue;
+          }
+
+          for (const chatId of placeSubscribers) {
+            try {
+              await botEntry.telegramBot.sendPhoto(chatId, imageUrl, {
+                caption: message,
+                parse_mode: 'Markdown'
+              });
+              this.logger.log(`[OutageData] Sent update to chat ${chatId}`);
+            } catch (error) {
+              this.logger.error(`[OutageData] Failed to send to chat ${chatId}: ${error}`);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`[OutageData] Error sending schedule update: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Обробник команди /ChangeGroupGPV для зміни GPV групи
+   */
+  private async handleChangeGroupGPVCommand(message: any): Promise<void> {
+    const chatId = message.chat.id;
+    const placeId = Object.keys(this.subscriberCache).find(pid =>
+      this.subscriberCache[pid]?.includes(chatId)
+    );
+
+    if (!placeId) {
+      this.logger.warn(`[ChangeGroupGPV] Chat ${chatId} not found in any place`);
+      return;
+    }
+
+    const botEntry = this.placeBots[placeId];
+    if (!botEntry?.telegramBot || !botEntry.bot.isEnabled) {
+      this.logger.warn(`[ChangeGroupGPV] No active bot found for place ${placeId}`);
+      return;
+    }
+
+    const bot = botEntry.telegramBot;
+
+    // Витягуємо номер групи з повідомлення
+    const text = message.text || '';
+    const parts = text.split(' ');
+
+    if (parts.length < 2) {
+      await bot.sendMessage(chatId,
+        '❌ Вкажіть номер GPV групи.\\n\\nПриклад: `/ChangeGroupGPV 28.1`',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const groupInput = parts[1].trim();
+
+    try {
+      // Отримуємо gpvConfigService
+      const gpvConfigService = (this.electricityAvailabilityService as any).scheduleCacheService?.gpvConfigService;
+
+      if (!gpvConfigService) {
+        await bot.sendMessage(chatId, '❌ Помилка: сервіс конфігурації недоступний.');
+        return;
+      }
+
+      // Валідуємо формат
+      if (!gpvConfigService.validateGpvGroupFormat(groupInput)) {
+        await bot.sendMessage(chatId,
+          `❌ Невірний формат групи.\\n\\nФормат має бути "число.число", наприклад: \`1.1\`, \`28.1\``,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Зберігаємо нову групу
+      gpvConfigService.setGpvGroup(groupInput);
+
+      this.logger.log(`[ChangeGroupGPV] Changed GPV group to ${groupInput} for chat ${chatId}`);
+
+      // Отримуємо URL зображення для нової групи
+      const outageDataService = (this.electricityAvailabilityService as any).scheduleCacheService?.outageDataService;
+      const imageUrl = outageDataService?.getImageUrl(groupInput);
+
+      // Відправляємо підтвердження з зображенням
+      const confirmMessage = `✅ **Групу GPV успішно змінено на ${groupInput}!**\\n\\nГрафік відключень для вашої нової групи буде оновлюватися автоматично кожні 15 хвилин.`;
+
+      if (imageUrl) {
+        try {
+          await bot.sendPhoto(chatId, imageUrl, {
+            caption: confirmMessage,
+            parse_mode: 'Markdown'
+          });
+          this.logger.log(`[ChangeGroupGPV] Sent confirmation to chat ${chatId}`);
+        } catch (photoError) {
+          this.logger.error(`[ChangeGroupGPV] Failed to send photo: ${photoError}`);
+          await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
+        }
+      } else {
+        await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
+      }
+    } catch (error: any) {
+      this.logger.error(`[ChangeGroupGPV] Error changing group: ${error.message}`);
+      await bot.sendMessage(chatId, `❌ Помилка при зміні групи: ${error.message}`);
+    }
+  }
 } // <-- Кінець класу NotificationBotService

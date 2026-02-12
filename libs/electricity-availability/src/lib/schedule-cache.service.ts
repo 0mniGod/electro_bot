@@ -7,6 +7,8 @@ import { convertToTimeZone } from 'date-fns-timezone';
 import { uk } from 'date-fns/locale';
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { NotificationBotService } from '@electrobot/bot';
+import { GpvConfigService } from './gpv-config.service';
+import { OutageDataService } from './outage-data.service';
 import {
   EMOJ_BULB,
   EMOJ_MOON,
@@ -82,10 +84,15 @@ export class ScheduleCacheService implements OnModuleInit {
   private lastNotifiedScheduleJSON: string | null = null;
   private notifiedTomorrowDates = new Set<string>();
 
+  // Outage-data: Кеш для останнього графіка з outage-data-ua
+  private lastOutageSchedule: any = null;
+
   constructor(
     private readonly httpService: HttpService,
     @Inject(forwardRef(() => NotificationBotService))
-    private readonly notificationBotService: NotificationBotService
+    private readonly notificationBotService: NotificationBotService,
+    private readonly gpvConfigService: GpvConfigService,
+    private readonly outageDataService: OutageDataService
   ) { }
 
   /**
@@ -798,5 +805,84 @@ export class ScheduleCacheService implements OnModuleInit {
       return EMOJ_GRAY_Q;
     };
     return `${start}-${end}: ${getEmoji(oldS)} ➔ ${getEmoji(newS)}`;
+  }
+
+  // ===================================================================
+  // OUTAGE-DATA: Нова логіка роботи з outage-data-ua GitHub репозиторієм
+  // ===================================================================
+
+  /**
+   * Завантажує графіки з outage-data-ua GitHub репозиторію
+   * Cron: Кожні 15 хвилин зі здвигом 5 хвилин (00:05, 00:20, 00:35, 00:50)
+   */
+  @Cron('5,20,35,50 * * * *')
+  public async fetchOutageDataSchedules(notifyUsers: boolean = true): Promise<boolean> {
+    if (this.isFetching) {
+      this.logger.warn('[OutageData] Fetch already in progress. Skipping.');
+      return false;
+    }
+
+    // Перевіряємо, чи налаштована GPV група
+    if (!this.gpvConfigService.isConfigured()) {
+      this.logger.debug('[OutageData] GPV group not configured. Skipping schedule fetch.');
+      return false;
+    }
+
+    const gpvGroup = this.gpvConfigService.getGpvGroup();
+    if (!gpvGroup) {
+      this.logger.warn('[OutageData] GPV group is null. Skipping.');
+      return false;
+    }
+
+    this.isFetching = true;
+    this.logger.log(`[OutageData] Fetching schedule for GPV group: ${gpvGroup}`);
+
+    try {
+      // Завантажуємо дані з GitHub
+      const rawData = await this.outageDataService.fetchKyivSchedule();
+      if (!rawData) {
+        this.logger.warn('[OutageData] Failed to fetch schedule from GitHub');
+        return false;
+      }
+
+      // Парсимо дані для нашої групи
+      const newSchedule = this.outageDataService.parseGroupSchedule(gpvGroup);
+      if (!newSchedule) {
+        this.logger.warn(`[OutageData] Failed to parse schedule for group ${gpvGroup}`);
+        return false;
+      }
+
+      this.logger.log(`[OutageData] Successfully parsed schedule for ${gpvGroup}`);
+
+      // Перевіряємо, чи є зміни
+      const hasChanged = this.outageDataService.hasScheduleChanged(this.lastOutageSchedule, newSchedule);
+
+      if (hasChanged && notifyUsers) {
+        this.logger.log('[OutageData] Schedule has changed. Sending notification...');
+
+        // Формуємо повідомлення
+        const scheduleText = this.outageDataService.formatScheduleText(newSchedule);
+        const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
+
+        const message = `🔔 **Оновлено графік відключень для групи GPV${gpvGroup}!**\n\n${scheduleText}\n\n_Останнє оновлення: ${newSchedule.updateFact || newSchedule.lastUpdated}_`;
+
+        // Відправляємо повідомлення з зображенням
+        await this.notificationBotService.sendScheduleUpdateWithImage(message, imageUrl);
+
+        this.logger.log('[OutageData] Notification sent successfully');
+      } else if (!hasChanged) {
+        this.logger.log('[OutageData] Schedule has not changed. No notification needed.');
+      }
+
+      // Зберігаємо новий графік
+      this.lastOutageSchedule = newSchedule;
+      return true;
+
+    } catch (error: any) {
+      this.logger.error(`[OutageData] Error fetching outage-data schedule: ${error.message}`, error.stack);
+      return false;
+    } finally {
+      this.isFetching = false;
+    }
   }
 }
