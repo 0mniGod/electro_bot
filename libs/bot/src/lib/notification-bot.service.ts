@@ -1523,7 +1523,11 @@ export class NotificationBotService implements OnModuleInit {
       const scheduleText = outageDataService.formatScheduleText(schedule);
       const imageUrl = outageDataService.getImageUrl(gpvGroup);
 
-      const msg = `📋 **Графік відключень GPV${gpvGroup}**\\n\\n${scheduleText}\\n\\n_Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
+      const msg = `📋 **Графік відключень GPV${gpvGroup}**
+
+${scheduleText}
+
+_Оновлено: ${schedule.updateFact || schedule.lastUpdated}_`;
 
       if (imageUrl) {
         try {
@@ -1571,7 +1575,9 @@ export class NotificationBotService implements OnModuleInit {
 
     if (parts.length < 2) {
       await bot.sendMessage(chatId,
-        '❌ Вкажіть номер GPV групи.\\n\\nПриклад: `/ChangeGroupGPV 28.1`',
+        `❌ Вкажіть номер GPV групи.
+
+Приклад: \`/ChangeGroupGPV 28.1\``,
         { parse_mode: 'Markdown' }
       );
       return;
@@ -1607,7 +1613,9 @@ export class NotificationBotService implements OnModuleInit {
       const imageUrl = outageDataService?.getImageUrl(groupInput);
 
       // Відправляємо підтвердження з зображенням
-      const confirmMessage = `✅ **Групу GPV успішно змінено на ${groupInput}!**\\n\\nГрафік відключень для вашої нової групи буде оновлюватися автоматично кожні 15 хвилин.`;
+      const confirmMessage = `✅ **Групу GPV успішно змінено на ${groupInput}!**
+
+Графік відключень для вашої нової групи буде оновлюватися автоматично кожні 15 хвилин.`;
 
       if (imageUrl) {
         try {
