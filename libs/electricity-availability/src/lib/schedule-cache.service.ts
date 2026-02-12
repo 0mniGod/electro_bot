@@ -164,6 +164,19 @@ export class ScheduleCacheService implements OnModuleInit {
           if (tomorrowSchedule) this.updateLegacyCache(tomorrowSchedule.schedule, true);
         }
 
+        // --- ADDED: Send Notification on Startup ---
+        if (notifyUsers) {
+          const fullScheduleText = this.outageDataService.formatScheduleWithPeriods(currentScheduleObj);
+          const lastUpdatedFormatted = this.outageDataService.formatLastUpdated(
+            currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
+          );
+          const msg = `🔔 **Бот запущено! Графік на сьогодні (${dateTodayStr})**\n\n` +
+            `📋 **Повний графік:**\n${fullScheduleText}\n\n` +
+            `_Оновлено: ${lastUpdatedFormatted}_`;
+          this.notificationBotService.sendScrapedNotification(msg);
+        }
+        // -------------------------------------------
+
         return true;
       }
 
@@ -637,6 +650,10 @@ export class ScheduleCacheService implements OnModuleInit {
 
     const schedule = this.outageDataService.parseGroupScheduleForDate(gpvGroup, tomorrowTimestamp);
     if (!schedule) return 'Графік на завтра не знайдено';
+
+    if (this.outageDataService.isPlaceholderSchedule(schedule.schedule)) {
+      return '';
+    }
 
     // Створюємо дату завтрашнього дня для правильних заголовків
     const tomorrow = new Date();

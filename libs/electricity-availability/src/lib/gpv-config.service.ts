@@ -29,8 +29,8 @@ export class GpvConfigService {
         this.cachedConfig = JSON.parse(data);
         this.logger.log(`Loaded GPV configuration: Group ${this.cachedConfig?.gpvGroup}, Region ${this.cachedConfig?.region}`);
       } else {
-        this.logger.warn('GPV configuration file not found. User needs to set GPV group.');
-        this.cachedConfig = null;
+        this.logger.warn('GPV configuration file not found. Setting default group 28.1.');
+        this.setGpvGroup('28.1', 'kyiv');
       }
     } catch (error) {
       this.logger.error(`Failed to load GPV configuration: ${error}`);

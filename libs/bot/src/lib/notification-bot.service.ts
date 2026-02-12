@@ -1635,6 +1635,11 @@ ${tomorrowText}`;
 
       this.logger.log(`[ChangeGroupGPV] Changed GPV group to ${groupInput} for chat ${chatId}`);
 
+      // --- ДОДАНО: Примусове оновлення кешу ---
+      this.logger.log(`[ChangeGroupGPV] Triggering immediate schedule cache update...`);
+      await this.scheduleCacheService.fetchAndCacheSchedules(false);
+      // ----------------------------------------
+
       // Отримуємо URL зображення для нової групи
       const outageDataService = (this.electricityAvailabilityService as any).scheduleCacheService?.outageDataService;
       const imageUrl = outageDataService?.getImageUrl(groupInput);
