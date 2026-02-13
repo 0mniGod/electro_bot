@@ -519,7 +519,7 @@ export class OutageDataService {
                 hoursWithoutLight += duration;
             }
 
-            lines.push(`${prefixEmoji} ${startTime} - ${endTime} ${statusEmoji}`);
+            lines.push(`${prefixEmoji} ${startTime} - ${endTime} ${statusEmoji} - ${duration.toFixed(1)} год`);
         }
 
         // Додаємо статистику
