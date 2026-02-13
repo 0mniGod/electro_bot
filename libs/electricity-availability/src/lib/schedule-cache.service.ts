@@ -199,7 +199,10 @@ export class ScheduleCacheService implements OnModuleInit {
       }
 
       // 6. Формуємо повідомлення, якщо були зміни
-      if (notifyUsers && scheduleChanged) {
+      // Але не надсилаємо якщо це просто перехід дня (завтра стало сьогодні)
+      const isDayRollover = this.isDayRollover(this.lastOutageSchedule, currentSchedule);
+
+      if (notifyUsers && scheduleChanged && !isDayRollover) {
         // Форматуємо новий повний графік (згорнутий)
         const fullScheduleText = this.outageDataService.formatScheduleWithPeriods(currentScheduleObj);
 
@@ -217,6 +220,8 @@ export class ScheduleCacheService implements OnModuleInit {
         this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
         const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
         await this.notificationBotService.sendScheduleUpdateWithImage(msg, imageUrl);
+      } else if (scheduleChanged && isDayRollover) {
+        this.logger.log('[ScheduleCache] Day rollover detected (tomorrow became today), skipping change notification');
       }
 
       // Перевіряємо чи є готове повідомлення про завтрашній графік
@@ -887,5 +892,35 @@ export class ScheduleCacheService implements OnModuleInit {
     } finally {
       this.isFetching = false;
     }
+  }
+
+  /**
+   * Перевіряє чи зміна timestamp пов'язана з переходом на новий день
+   */
+  private isDayRollover(oldSchedule: any, newSchedule: any): boolean {
+    if (!oldSchedule || !newSchedule) return false;
+
+    const oldDate = new Date(parseInt(oldSchedule.timestamp) * 1000);
+    const newDate = new Date(parseInt(newSchedule.timestamp) * 1000);
+
+    // Перевіряємо чи oldDate це вчора, а newDate це сьогодні
+    const yesterdayStart = new Date();
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    yesterdayStart.setHours(0, 0, 0, 0);
+
+    const yesterdayEnd = new Date();
+    yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
+    yesterdayEnd.setHours(23, 59, 59, 999);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const isOldYesterday = oldDate >= yesterdayStart && oldDate <= yesterdayEnd;
+    const isNewToday = newDate >= todayStart && newDate <= todayEnd;
+
+    return isOldYesterday && isNewToday;
   }
 }

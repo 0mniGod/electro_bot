@@ -24,8 +24,7 @@ export const EMOJ_GRAY_Q = emoji.get('grey_question'); // ❔ (Майбутні�
 // --- --------------------------------- ---
 
 
-export const MSG_DISABLED_REGULAR_SUFFIX =
-  'Не забувай підтримувати українську армію!\n';
+export const MSG_DISABLED_REGULAR_SUFFIX = '';
 
 export const MSG_LAUNCH_DOC_LINK =
   '<a href="https://zd333.github.io/electro_bot/doc/launch-bot-for-my-place.html">Як ти можеш запустити такого бота для власної локації без всякого програмування</a>';
@@ -79,8 +78,7 @@ export const RESP_CURRENTLY_AVAILABLE = (params: {
   }) +
   `\n${params.scheduleContextMessage || ''}` +
   TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) +
-  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) +
-  `\nСлава Україні!`;
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule });
 
 export const RESP_CURRENTLY_UNAVAILABLE = (params: {
   readonly when: string;
@@ -119,8 +117,7 @@ export const RESP_WAS_NOT_SUBSCRIBED = (params: { readonly place: string }) =>
 export const RESP_ABOUT = (params: { readonly listedBotsMessage: string }) =>
   `Версія ${VERSION}\n\n` +
   `Бота створено @oleksandr_changli, реанімовано @OmniGod\n\n` +
-  params.listedBotsMessage +
-  `Якщо тобі подобається цей бот - можеш подякувати донатом на підтримку української армії .\n\n`;
+  params.listedBotsMessage;
 
 // --- ОНОВЛЕНІ СПОВІЩЕННЯ (додано scheduleContextMessage) ---
 
@@ -140,8 +137,7 @@ export const RESP_ENABLED_SHORT = (params: {
   }) +
   `\n${params.scheduleContextMessage || ''}` +
   TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
-  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
-  `\nСлава Україні!    `;
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }); // <--- ДОДАНО
 
 export const RESP_DISABLED_SHORT = (params: {
   readonly when: string;
@@ -180,8 +176,7 @@ export const RESP_ENABLED_DETAILED = (params: {
   }) +
   `\n${params.scheduleContextMessage || ''}` +
   TODAYS_SCHEDULE({ scheduleString: params.todaysSchedule }) + // <--- ДОДАНО
-  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }) + // <--- ДОДАНО
-  `\nСлава Україні!    `;
+  TOMORROWS_SCHEDULE({ scheduleString: params.tomorrowsSchedule }); // <--- ДОДАНО
 
 export const RESP_ENABLED_SUSPICIOUS = (params: {
   readonly when: string;
@@ -240,7 +235,6 @@ export const RESP_PREVIOUS_MONTH_SUMMARY = (params: {
   params.statsMessage +
   '\n\n' +
   `Не сумуй, що час пролетів так швидко, адже тепер ми на місяць ближче до Перемоги!\n\n` +
-  `Посміхайся, радій життю та не забувай підтримувати Українську Армію${EMOJ_HEART}!\n\n` +
   `${EMOJ_KISS_HEART}${EMOJ_KISS_HEART}${EMOJ_KISS_HEART}\n` +
   `    `;
 export const MSG_DISABLED =

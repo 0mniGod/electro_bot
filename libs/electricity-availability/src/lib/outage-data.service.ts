@@ -463,8 +463,20 @@ export class OutageDataService {
 
         for (const period of periods) {
             const startTime = period.startHour * 60 + period.startMinute;
-            const endTime = period.endHour === 0 ? 24 * 60 : period.endHour * 60 + period.endMinute;
+            let endTime = period.endHour * 60 + period.endMinute;
             const nowTime = currentHour * 60 + currentMinute;
+
+            // Якщо період закінчується о 00:00 (endHour=0), це кінець поточного дня
+            // Перевіряємо чи ми вже пройшли цей період
+            if (period.endHour === 0) {
+                // Якщо зараз після півночі (nowTime < startTime), 
+                // значить період (наприклад 22:00-00:00) вже минув
+                if (nowTime < startTime) {
+                    period.isPast = true;
+                    continue;
+                }
+                endTime = 24 * 60; // Для comparison в межах того самого дня
+            }
 
             if (endTime <= nowTime) {
                 period.isPast = true;

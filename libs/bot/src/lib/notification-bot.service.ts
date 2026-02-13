@@ -1316,55 +1316,9 @@ export class NotificationBotService implements OnModuleInit {
       });
       telegramBot.onText(/\/stats/, (msg) => {
         this.logger.debug(`Received /stats for place ${place.id} via onText`); // Лог
-        this.handleStatsCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleStatsCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
-      });
-      telegramBot.onText(/\/about/, (msg) => {
         this.logger.debug(`Received /about for place ${place.id} via onText`); // Лог
         this.handleAboutCommand({ msg, place, bot, telegramBot }).catch(err => this.logger.error(`Unhandled error in handleAboutCommand: ${err}`, err instanceof Error ? err.stack : undefined)); // Додано instanceof
       });
-
-      // --- ДОДАНО НОВИЙ ОБРОБНИК ДЛЯ /update ---
-      telegramBot.onText(/\/update/, async (msg) => {
-        const userId = msg.from?.id;
-        const chatId = msg.chat.id;
-        this.logger.log(`Received /update command from user ${userId} in chat ${chatId} for place ${place.id}`);
-
-        // // Опціонально: Перевірка прав адміністратора
-        const ADMIN_USER_ID = "229951457";
-        if (String(userId) !== ADMIN_USER_ID) { // <--- ПРИБЕРІТЬ ПЕРЕВІРКУ !ADMIN_USER_ID
-          this.logger.warn(`User ${userId} is not authorized to run /update for place ${place.id}.`);
-          try {
-            await telegramBot.sendMessage(chatId, '❌ У вас недостатньо прав для виконання цієї команди.');
-          } catch (replyError) { this.logger.error(`Error sending unauthorized message for /update: ${replyError}`); }
-          return;
-        }
-        // Виконуємо оновлення
-        try {
-          // --- ЗМІНЕНО ТЕКСТ ---
-          await telegramBot.sendMessage(chatId, '🔄 Запускаю оновлення конфігурацій та внутрішнього кешу...');
-          // --- ---------------- ---
-
-          // Спочатку оновлюємо конфігурації ботів (як і раніше)
-          await this.refreshAllPlacesAndBots();
-
-          // --- ДОДАНО ВИКЛИК ОНОВЛЕННЯ КЕШУ СТАНІВ ---
-          await this.electricityAvailabilityService.refreshInternalCache();
-          // --- --------------------------------------- ---
-
-          // --- ЗМІНЕНО ТЕКСТ ---
-          await telegramBot.sendMessage(chatId, '✅ Оновлення завершено!');
-          // --- ---------------- ---
-          this.logger.log(`/update command processed successfully for place ${place.id}`);
-        } catch (error) {
-          this.logger.error(`Error during /update command processing for place ${place.id}: ${error}`, error instanceof Error ? error.stack : undefined);
-          try {
-            // --- ЗМІНЕНО ТЕКСТ ---
-            await telegramBot.sendMessage(chatId, '❌ Помилка під час оновлення. Перевірте логи.');
-            // --- ---------------- ---
-          } catch (replyError) { this.logger.error(`Error sending error message for /update: ${replyError}`); }
-        }
-      });
-      // --- КІНЕЦЬ НОВОГО ОБРОБНИКА /update ---
 
       // --- ОБРОБНИК ДЛЯ /schedule (OUTAGE-DATA) ---
       telegramBot.onText(/\/schedule/, async (msg) => {
