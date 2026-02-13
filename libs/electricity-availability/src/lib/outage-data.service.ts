@@ -145,8 +145,10 @@ export class OutageDataService {
         const cleanKey = groupKey.replace('GPV', '').replace('.', '-');
 
         // Додаємо timestamp як query параметр для уникнення кешування в Telegram
-        // Використовуємо timestamp з даних або поточний час
-        const timestamp = this.cachedData?.fact?.today || Math.floor(Date.now() / 1000);
+        // Використовуємо час останнього завантаження даних для cache-busting
+        const timestamp = this.lastFetchTime
+            ? Math.floor(this.lastFetchTime.getTime() / 1000)
+            : Math.floor(Date.now() / 1000);
 
         return `${this.baseUrl}/images/kyiv/gpv-${cleanKey}-emergency.png?t=${timestamp}`;
     }
@@ -466,17 +468,15 @@ export class OutageDataService {
             let endTime = period.endHour * 60 + period.endMinute;
             const nowTime = currentHour * 60 + currentMinute;
 
+
             // Якщо період закінчується о 00:00 (endHour=0), це кінець поточного дня
             // Перевіряємо чи ми вже пройшли цей період
             if (period.endHour === 0) {
-                // Якщо зараз після півночі (nowTime < startTime), 
-                // значить період (наприклад 22:00-00:00) вже минув
-                if (nowTime < startTime) {
-                    period.isPast = true;
-                    continue;
-                }
-                endTime = 24 * 60; // Для comparison в межах того самого дня
+                // Період закінчується опівночі (наприклад, 22:00-00:00)
+                // Для порівняння: 00:00 стає 24:00 (1440 хвилин)
+                endTime = 24 * 60;
             }
+
 
             if (endTime <= nowTime) {
                 period.isPast = true;

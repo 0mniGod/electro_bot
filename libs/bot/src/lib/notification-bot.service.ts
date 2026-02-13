@@ -1338,6 +1338,26 @@ export class NotificationBotService implements OnModuleInit {
       });
       // --- КІНЕЦЬ ОБРОБНИКА /changegroupgpv ---
 
+      // ========== ТИМЧАСОВИЙ КОД ДЛЯ ОТРИМАННЯ EMOJI ID ==========
+      // TODO: ВИДАЛИТИ ПІСЛЯ ОТРИМАННЯ EMOJI ID!
+      telegramBot.on('message', (msg) => {
+        // Перевіряємо чи є кастомні емоджі в повідомленні
+        if (msg.entities && msg.entities.length > 0) {
+          msg.entities.forEach((entity, index) => {
+            if (entity.type === 'custom_emoji' && entity.custom_emoji_id) {
+              this.logger.log(`
+╔═══════════════════════════════════════════════════════════╗
+║ 🎯 CUSTOM EMOJI DETECTED - #${index + 1}                        ║
+║ ID: ${entity.custom_emoji_id.padEnd(47)}║
+║ From: ${msg.from?.username || msg.from?.id || 'Unknown'}${(' '.repeat(Math.max(0, 47 - (msg.from?.username?.length || 10))))}║
+╚═══════════════════════════════════════════════════════════╝
+              `);
+            }
+          });
+        }
+      });
+      // ========== КІНЕЦЬ ТИМЧАСОВОГО КОДУ ==========
+
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
     } catch (error) {
