@@ -1338,26 +1338,6 @@ export class NotificationBotService implements OnModuleInit {
       });
       // --- КІНЕЦЬ ОБРОБНИКА /changegroupgpv ---
 
-      // ========== ТИМЧАСОВИЙ КОД ДЛЯ ОТРИМАННЯ EMOJI ID ==========
-      // TODO: ВИДАЛИТИ ПІСЛЯ ОТРИМАННЯ EMOJI ID!
-      telegramBot.on('message', (msg) => {
-        // Перевіряємо чи є кастомні емоджі в повідомленні
-        if (msg.entities && msg.entities.length > 0) {
-          msg.entities.forEach((entity, index) => {
-            if (entity.type === 'custom_emoji' && entity.custom_emoji_id) {
-              this.logger.log(`
-╔═══════════════════════════════════════════════════════════╗
-║ 🎯 CUSTOM EMOJI DETECTED - #${index + 1}                        ║
-║ ID: ${entity.custom_emoji_id.padEnd(47)}║
-║ From: ${msg.from?.username || msg.from?.id || 'Unknown'}${(' '.repeat(Math.max(0, 47 - (msg.from?.username?.length || 10))))}║
-╚═══════════════════════════════════════════════════════════╝
-              `);
-            }
-          });
-        }
-      });
-      // ========== КІНЕЦЬ ТИМЧАСОВОГО КОДУ ==========
-
       this.logger.log(`Successfully created bot instance and attached listeners for place ${place.id}.`); // Лог
       return telegramBot; // Повертаємо створений екземпляр
     } catch (error) {
@@ -1430,7 +1410,7 @@ export class NotificationBotService implements OnModuleInit {
             try {
               await botEntry.telegramBot.sendPhoto(chatId, imageUrl, {
                 caption: message,
-                parse_mode: 'Markdown'
+                parse_mode: 'HTML'
               });
             } catch (error) {
               this.logger.error(`[OutageData] Failed to send to chat ${chatId}: ${error}`);
@@ -1471,7 +1451,7 @@ export class NotificationBotService implements OnModuleInit {
       if (!gpvConfigService.isConfigured()) {
         await bot.sendMessage(chatId,
           '⚠️ GPV група не налаштована.\\n\\nВикористайте `/changegroupgpv <номер>`.\\n\\nПриклад: `/changegroupgpv 28.1`',
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'HTML' }
         );
         return;
       }
@@ -1532,13 +1512,13 @@ ${tomorrowText}`;
         try {
           await bot.sendPhoto(chatId, imageUrl, {
             caption: msg,
-            parse_mode: 'Markdown'
+            parse_mode: 'HTML'
           });
         } catch (photoError) {
-          await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+          await bot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
         }
       } else {
-        await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
       }
     } catch (error: any) {
       this.logger.error(`[Schedule] Error: ${error.message}`);
@@ -1577,7 +1557,7 @@ ${tomorrowText}`;
         `❌ Вкажіть номер GPV групи.
 
 Приклад: \`/ChangeGroupGPV 28.1\``,
-        { parse_mode: 'Markdown' }
+        { parse_mode: 'HTML' }
       );
       return;
     }
@@ -1599,7 +1579,7 @@ ${tomorrowText}`;
           `❌ Невірний формат групи.
 
 Формат має бути "число.число", наприклад: \`1.1\`, \`28.1\``,
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'HTML' }
         );
         return;
       }
@@ -1627,15 +1607,15 @@ ${tomorrowText}`;
         try {
           await bot.sendPhoto(chatId, imageUrl, {
             caption: confirmMessage,
-            parse_mode: 'Markdown'
+            parse_mode: 'HTML'
           });
           this.logger.log(`[ChangeGroupGPV] Sent confirmation to chat ${chatId}`);
         } catch (photoError) {
           this.logger.error(`[ChangeGroupGPV] Failed to send photo: ${photoError}`);
-          await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
+          await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'HTML' });
         }
       } else {
-        await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'HTML' });
       }
     } catch (error: any) {
       this.logger.error(`[ChangeGroupGPV] Error changing group: ${error.message}`);

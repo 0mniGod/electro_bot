@@ -17,6 +17,7 @@ import {
   EMOJ_GRAY_Q,
   EMOJ_GREEN_CIRCLE,
   EMOJ_HOURGLASS,
+  CUSTOM_EMOJI,
 } from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
