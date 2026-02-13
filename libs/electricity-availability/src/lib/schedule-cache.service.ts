@@ -173,9 +173,9 @@ export class ScheduleCacheService implements OnModuleInit {
           const lastUpdatedFormatted = this.outageDataService.formatLastUpdated(
             currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
           );
-          const msg = `🔔 **Бот запущено! Графік на сьогодні (${dateTodayStr})**\n\n` +
-            `📋 **Повний графік:**\n${fullScheduleText}\n\n` +
-            `_Оновлено: ${lastUpdatedFormatted}_`;
+          const msg = `🔔 <b>Бот запущено! Графік на сьогодні (${dateTodayStr})</b>\n\n` +
+            `📋 <b>Повний графік:</b>\n${fullScheduleText}\n\n` +
+            `<i>Оновлено: ${lastUpdatedFormatted}</i>`;
 
           this.logger.log(`[ScheduleCache] Sending startup notification for group ${gpvGroup}`);
           const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
@@ -212,11 +212,11 @@ export class ScheduleCacheService implements OnModuleInit {
           currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
         );
 
-        let msg = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**\n\n`;
+        let msg = `🔔 <b>Оновлено графік на сьогодні (${dateTodayStr})!</b>\n\n`;
 
-        msg += `**Зміни:**\n${diffText}\n\n`;
-        msg += `📋 **Новий графік:**\n${fullScheduleText}\n\n`;
-        msg += `_Оновлено: ${lastUpdatedFormatted}_`;
+        msg += `<b>Зміни:</b>\n${diffText}\n\n`;
+        msg += `📋 <b>Новий графік:</b>\n${fullScheduleText}\n\n`;
+        msg += `<i>Оновлено: ${lastUpdatedFormatted}</i>`;
 
         this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
         const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
