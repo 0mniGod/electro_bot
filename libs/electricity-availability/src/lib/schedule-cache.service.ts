@@ -17,7 +17,6 @@ import {
   EMOJ_GRAY_Q,
   EMOJ_GREEN_CIRCLE,
   EMOJ_HOURGLASS,
-  CUSTOM_EMOJI,
 } from '@electrobot/bot';
 
 // --- Імітація dt_util з Home Assistant ---
@@ -173,9 +172,9 @@ export class ScheduleCacheService implements OnModuleInit {
           const lastUpdatedFormatted = this.outageDataService.formatLastUpdated(
             currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
           );
-          const msg = `🔔 <b>Бот запущено! Графік на сьогодні (${dateTodayStr})</b>\n\n` +
-            `📋 <b>Повний графік:</b>\n${fullScheduleText}\n\n` +
-            `<i>Оновлено: ${lastUpdatedFormatted}</i>`;
+          const msg = `🔔 **Бот запущено! Графік на сьогодні (${dateTodayStr})**\n\n` +
+            `📋 **Повний графік:**\n${fullScheduleText}\n\n` +
+            `_Оновлено: ${lastUpdatedFormatted}_`;
 
           this.logger.log(`[ScheduleCache] Sending startup notification for group ${gpvGroup}`);
           const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
@@ -212,11 +211,11 @@ export class ScheduleCacheService implements OnModuleInit {
           currentScheduleObj.updateFact || currentScheduleObj.lastUpdated
         );
 
-        let msg = `🔔 <b>Оновлено графік на сьогодні (${dateTodayStr})!</b>\n\n`;
+        let msg = `🔔 **Оновлено графік на сьогодні (${dateTodayStr})!**\n\n`;
 
-        msg += `<b>Зміни:</b>\n${diffText}\n\n`;
-        msg += `📋 <b>Новий графік:</b>\n${fullScheduleText}\n\n`;
-        msg += `<i>Оновлено: ${lastUpdatedFormatted}</i>`;
+        msg += `**Зміни:**\n${diffText}\n\n`;
+        msg += `📋 **Новий графік:**\n${fullScheduleText}\n\n`;
+        msg += `_Оновлено: ${lastUpdatedFormatted}_`;
 
         this.logger.log(`[ScheduleCache] Sending notification: ${msg}`);
         const imageUrl = this.outageDataService.getImageUrl(gpvGroup);
@@ -668,7 +667,7 @@ export class ScheduleCacheService implements OnModuleInit {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
 
-    return this.outageDataService.formatScheduleWithPeriods(schedule, tomorrow);
+    return this.outageDataService.formatScheduleWithPeriods(schedule, tomorrow, false);
   }
 
   /**

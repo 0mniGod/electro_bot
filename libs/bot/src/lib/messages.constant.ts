@@ -2,19 +2,10 @@ import * as emoji from 'node-emoji';
 import { VERSION } from '@electrobot/domain';
 import { format } from 'date-fns';
 
-// --- КАСТОМНІ АНІМОВАНІ ЕМОДЖІ З НАБОРУ esvitlo_uk ---
-export const CUSTOM_EMOJI = {
-  ANIMATED_CHECK: '<tg-emoji emoji-id="5206552127228365819">✅</tg-emoji>',      // Анімована галочка (поточний період)
-  ANIMATED_BULB: '<tg-emoji emoji-id="5206634259887966399">💡</tg-emoji>',       // Анімована лампочка (світло є)
-  ANIMATED_CROSS: '<tg-emoji emoji-id="5206269939287084301">❌</tg-emoji>',      // Анімований хрестик (світла немає)
-  CHARGING_BATTERY: '<tg-emoji emoji-id="5204031715865021903">🪫</tg-emoji>',   // Батарейка на зарядці (нагадування)
-};
-
-// --- СТАНДАРТНІ ЕМОДЖІ (дляbackward compatibility або не-Telegram контексту) ---
 export const EMOJ_UA = emoji.get('flag-ua');
 export const EMOJ_PERSERVE = emoji.get('persevere');
-export const EMOJ_BULB = CUSTOM_EMOJI.ANIMATED_BULB; // 💡 Анімована лампочка
-export const EMOJ_MOON = CUSTOM_EMOJI.ANIMATED_CROSS; // ❌ Анімований хрестик (замість місяця)
+export const EMOJ_BULB = emoji.get('bulb'); // 💡
+export const EMOJ_MOON = emoji.get('new_moon_with_face'); // 🌚
 export const EMOJ_HALF_MOON = emoji.get('waning_crescent_moon');
 export const EMOJ_KISS = emoji.get('kiss');
 export const EMOJ_KISS_HEART = emoji.get('kissing_heart');
@@ -26,12 +17,11 @@ export const EMOJ_CROSSED_FINGERS = emoji.get('crossed_fingers');
 export const EMOJ_SYMBOLS_OVER_MOUTH = emoji.get('symbols_over_mouth');
 
 // --- ДОДАНО НОВІ ЕМОДЗІ ДЛЯ ГРАФІКА ---
-export const EMOJ_CHECK_MARK = CUSTOM_EMOJI.ANIMATED_CHECK; // ✅ Анімована галочка (поточний)
-export const EMOJ_GREEN_CIRCLE = CUSTOM_EMOJI.ANIMATED_CHECK; // Використовуємо галочку
+export const EMOJ_CHECK_MARK = emoji.get('white_check_mark'); // ✅ (Минулий)
+export const EMOJ_GREEN_CIRCLE = emoji.get('white_check_mark'); // 🟢 (Поточний)
 export const EMOJ_HOURGLASS = emoji.get('hourglass_flowing_sand'); // ⏳ (Майбутній гарантований)
 export const EMOJ_GRAY_Q = emoji.get('grey_question'); // ❔ (Майбутній можливий / "сіра зона")
 // --- --------------------------------- ---
-
 
 
 export const MSG_DISABLED_REGULAR_SUFFIX = '';

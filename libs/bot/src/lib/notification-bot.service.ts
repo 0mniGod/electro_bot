@@ -1410,7 +1410,7 @@ export class NotificationBotService implements OnModuleInit {
             try {
               await botEntry.telegramBot.sendPhoto(chatId, imageUrl, {
                 caption: message,
-                parse_mode: 'HTML'
+                parse_mode: 'Markdown'
               });
             } catch (error) {
               this.logger.error(`[OutageData] Failed to send to chat ${chatId}: ${error}`);
@@ -1451,7 +1451,7 @@ export class NotificationBotService implements OnModuleInit {
       if (!gpvConfigService.isConfigured()) {
         await bot.sendMessage(chatId,
           '⚠️ GPV група не налаштована.\\n\\nВикористайте `/changegroupgpv <номер>`.\\n\\nПриклад: `/changegroupgpv 28.1`',
-          { parse_mode: 'HTML' }
+          { parse_mode: 'Markdown' }
         );
         return;
       }
@@ -1497,7 +1497,7 @@ _Оновлено: ${lastUpdatedFormatted}_`;
           tomorrow.setDate(tomorrow.getDate() + 1);
           tomorrow.setHours(0, 0, 0, 0);
 
-          const tomorrowText = outageDataService.formatScheduleWithPeriods(tomorrowSchedule, tomorrow);
+          const tomorrowText = outageDataService.formatScheduleWithPeriods(tomorrowSchedule, tomorrow, false);
           msg += `
 
 ━━━━━━━━━━━━━
@@ -1512,13 +1512,13 @@ ${tomorrowText}`;
         try {
           await bot.sendPhoto(chatId, imageUrl, {
             caption: msg,
-            parse_mode: 'HTML'
+            parse_mode: 'Markdown'
           });
         } catch (photoError) {
-          await bot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
+          await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
         }
       } else {
-        await bot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
+        await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       }
     } catch (error: any) {
       this.logger.error(`[Schedule] Error: ${error.message}`);
@@ -1557,7 +1557,7 @@ ${tomorrowText}`;
         `❌ Вкажіть номер GPV групи.
 
 Приклад: \`/ChangeGroupGPV 28.1\``,
-        { parse_mode: 'HTML' }
+        { parse_mode: 'Markdown' }
       );
       return;
     }
@@ -1579,7 +1579,7 @@ ${tomorrowText}`;
           `❌ Невірний формат групи.
 
 Формат має бути "число.число", наприклад: \`1.1\`, \`28.1\``,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'Markdown' }
         );
         return;
       }
@@ -1607,15 +1607,15 @@ ${tomorrowText}`;
         try {
           await bot.sendPhoto(chatId, imageUrl, {
             caption: confirmMessage,
-            parse_mode: 'HTML'
+            parse_mode: 'Markdown'
           });
           this.logger.log(`[ChangeGroupGPV] Sent confirmation to chat ${chatId}`);
         } catch (photoError) {
           this.logger.error(`[ChangeGroupGPV] Failed to send photo: ${photoError}`);
-          await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'HTML' });
+          await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
         }
       } else {
-        await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'HTML' });
+        await bot.sendMessage(chatId, confirmMessage, { parse_mode: 'Markdown' });
       }
     } catch (error: any) {
       this.logger.error(`[ChangeGroupGPV] Error changing group: ${error.message}`);

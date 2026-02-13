@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { CUSTOM_EMOJI } from '@electrobot/bot';
 
 // Інтерфейс для даних з outage-data-ua
 interface OutageDataResponse {
@@ -343,7 +342,7 @@ export class OutageDataService {
      * @param schedule - Розпарсений графік
      * @param referenceDate - Дата для порівняння (для визначення минулого/поточного/майбутнього)
      */
-    public formatScheduleWithPeriods(schedule: ParsedSchedule, referenceDate: Date = new Date()): string {
+    public formatScheduleWithPeriods(schedule: ParsedSchedule, referenceDate: Date = new Date(), showRelativeTimeEmojis: boolean = true): string {
         interface Period {
             startHour: number;
             startMinute: number;
@@ -497,12 +496,13 @@ export class OutageDataService {
             const startTime = `${String(period.startHour).padStart(2, '0')}:${String(period.startMinute).padStart(2, '0')}`;
             const endTime = `${String(period.endHour).padStart(2, '0')}:${String(period.endMinute).padStart(2, '0')}`;
 
-
             let prefixEmoji: string;
-            if (period.isPast) {
+            if (!showRelativeTimeEmojis) {
+                prefixEmoji = ''; // Без емодзі для майбутнього/минулого
+            } else if (period.isPast) {
                 prefixEmoji = '⏪'; // Минуле
             } else if (period.isCurrent) {
-                prefixEmoji = CUSTOM_EMOJI.ANIMATED_CHECK; // Поточне (Анімована)
+                prefixEmoji = '✅'; // Поточне
             } else {
                 prefixEmoji = '⏩'; // Майбутнє
             }
@@ -512,10 +512,10 @@ export class OutageDataService {
             const duration = (calcEndHour * 60 + period.endMinute - (period.startHour * 60 + period.startMinute)) / 60;
 
             if (period.status === 'yes') {
-                statusEmoji = CUSTOM_EMOJI.ANIMATED_BULB; // Анімована лампочка
+                statusEmoji = '💡';
                 hoursWithLight += duration;
             } else {
-                statusEmoji = CUSTOM_EMOJI.ANIMATED_CROSS; // Анімований хрестик
+                statusEmoji = '🌚';
                 hoursWithoutLight += duration;
             }
 
@@ -524,9 +524,9 @@ export class OutageDataService {
 
         // Додаємо статистику
         lines.push('');
-        lines.push(`📊 <b>Статистика:</b>`);
-        lines.push(`${CUSTOM_EMOJI.ANIMATED_BULB} Зі світлом: ${hoursWithLight.toFixed(1)} год`);
-        lines.push(`${CUSTOM_EMOJI.ANIMATED_CROSS} Без світла: ${hoursWithoutLight.toFixed(1)} год`);
+        lines.push(`📊 **Статистика:**`);
+        lines.push(`💡 Зі світлом: ${hoursWithLight.toFixed(1)} год`);
+        lines.push(`🌚 Без світла: ${hoursWithoutLight.toFixed(1)} год`);
 
         return lines.join('\n');
     }

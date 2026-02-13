@@ -114,9 +114,9 @@ export class TomorrowScheduleTrackerService {
         // Додати дату завтра (форматуємо як "13.02")
         const tomorrowDateStr = tomorrowDate.toLocaleDateString('uk-UA', { day: 'numeric', month: 'numeric' });
 
-        const formattedSchedule = this.outageDataService.formatScheduleWithPeriods(parsedSchedule, tomorrowDate);
+        const formattedSchedule = this.outageDataService.formatScheduleWithPeriods(parsedSchedule, tomorrowDate, false);
 
-        const message = `📅 <b>Графік на завтра (${tomorrowDateStr}) став доступний!</b>\n\nГрупа: ${groupKey}\n\n${formattedSchedule}`;
+        const message = `📅 **Графік на завтра (${tomorrowDateStr}) став доступний!**\n\nГрупа: ${groupKey}\n\n${formattedSchedule}`;
         const imageUrl = this.outageDataService.getImageUrl(groupKey);
 
         return { message, imageUrl };
