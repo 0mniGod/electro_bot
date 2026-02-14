@@ -1,0 +1,62 @@
+
+> nx run electricity-availability:test
+
+[31m[Nest] 28316  - [39m14.02.2026, 19:00:56 [31m  ERROR[39m [38;5;3m[ScheduleCacheService] [39m[31m[ScheduleCache] Error in fetchAndCacheSchedules: Invalid time value[39m
+RangeError: Invalid time value
+    at format (D:\kms\electo_bot\electro_bot\node_modules\date-fns\format\index.js:357:11)
+    at ScheduleCacheService.isDayRollover (D:\kms\electo_bot\electro_bot\libs\electricity-availability\src\lib\schedule-cache.service.ts:917:29)
+    at ScheduleCacheService.<anonymous> (D:\kms\electo_bot\electro_bot\libs\electricity-availability\src\lib\schedule-cache.service.ts:206:34)
+    at Generator.next (<anonymous>)
+    at fulfilled (D:\kms\electo_bot\electro_bot\node_modules\tslib\tslib.js:167:62)
+[31m[Nest] 28316  - [39m14.02.2026, 19:00:56 [31m  ERROR[39m [38;5;3m[ScheduleCacheService] [39m[31m[ScheduleCache] Error in fetchAndCacheSchedules: Invalid time value[39m
+RangeError: Invalid time value
+    at format (D:\kms\electo_bot\electro_bot\node_modules\date-fns\format\index.js:357:11)
+    at ScheduleCacheService.isDayRollover (D:\kms\electo_bot\electro_bot\libs\electricity-availability\src\lib\schedule-cache.service.ts:917:29)
+    at ScheduleCacheService.<anonymous> (D:\kms\electo_bot\electro_bot\libs\electricity-availability\src\lib\schedule-cache.service.ts:206:34)
+    at Generator.next (<anonymous>)
+    at fulfilled (D:\kms\electo_bot\electro_bot\node_modules\tslib\tslib.js:167:62)
+FAIL electricity-availability libs/electricity-availability/src/lib/schedule-cache.service.spec.ts (5.517 s)
+  ScheduleCacheService
+    √ should be defined (16 ms)
+    √ should NOT send notification if changes are due to day rollover (18 ms)
+    × should send notification if changes are NOT rollover (same day update) (5 ms)
+
+  ● ScheduleCacheService › should send notification if changes are NOT rollover (same day update)
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+    [0m [90m 152 |[39m         [90m// 3. Verify[39m
+     [90m 153 |[39m         [90m// notification SHOULD be sent[39m
+    [31m[1m>[22m[39m[90m 154 |[39m         expect(mockNotificationBotService[33m.[39msendScheduleUpdateWithImage)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m     |[39m                                                                        [31m[1m^[22m[39m
+     [90m 155 |[39m     })[33m;[39m
+     [90m 156 |[39m })[33m;[39m
+     [90m 157 |[39m[0m
+
+      at src/lib/schedule-cache.service.spec.ts:154:72
+      at fulfilled (../../node_modules/tslib/tslib.js:167:62)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 2 passed, 3 total
+Snapshots:   0 total
+Time:        5.728 s, estimated 6 s
+Ran all test suites.
+
+ 
+
+ >  NX   Running target "electricity-availability:test" failed
+
+   Failed tasks:
+   
+   - electricity-availability:test
+   
+   Hint: run the command with --verbose for more details.
+
+
+ >  NX   Nx Cloud encountered some problems
+
+   This workspace is more than three days old and is not connected. Workspaces must be connected within 3 days of creation. Claim your workspace at https://cloud.nx.app. (code: 401)
+

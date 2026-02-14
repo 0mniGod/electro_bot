@@ -136,14 +136,18 @@ export class ScheduleCacheService implements OnModuleInit {
       }
 
       const currentSchedule = currentScheduleObj.schedule;
-      const dateTodayStr = new Date().toLocaleDateString('uk-UA', { day: 'numeric', month: 'numeric' });
+
+      // FIX: Use Kyiv timezone for "today" date
+      const nowKyiv = convertToTimeZone(new Date(), { timeZone: TZ_KYIV });
+      const dateTodayStr = format(nowKyiv, 'dd.MM'); // e.g. "14.02"
 
       // 4. Перевіряємо на зміни (порівнюємо з попереднім збереженим станом)
       let scheduleChanged = false;
       let diffText = '';
 
       if (this.lastOutageSchedule) {
-        diffText = this.generateOutageScheduleDiff(this.lastOutageSchedule, currentSchedule);
+        // Fix: Access .schedule from lastOutageSchedule
+        diffText = this.generateOutageScheduleDiff(this.lastOutageSchedule.schedule, currentSchedule);
         if (diffText) {
           scheduleChanged = true;
           this.logger.log(`[ScheduleCache] Detected changes in schedule:\n${diffText}`);
@@ -153,7 +157,7 @@ export class ScheduleCacheService implements OnModuleInit {
       } else {
         // Перший запуск - просто зберігаємо
         this.logger.log('[ScheduleCache] Initial schedule fetch. Saving state.');
-        this.lastOutageSchedule = currentSchedule;
+        this.lastOutageSchedule = currentScheduleObj; // Fix: Save full object
 
         // 5a. Оновлюємо ЛЕГАСІ кеш
         this.updateLegacyCache(currentSchedule, false);
@@ -187,7 +191,7 @@ export class ScheduleCacheService implements OnModuleInit {
       }
 
       // 5. Зберігаємо новий стан
-      this.lastOutageSchedule = currentSchedule;
+      this.lastOutageSchedule = currentScheduleObj; // Fix: Save full object
 
       // 5a. Оновлюємо ЛЕГАСІ кеш
       this.updateLegacyCache(currentSchedule, false);
@@ -200,7 +204,8 @@ export class ScheduleCacheService implements OnModuleInit {
 
       // 6. Формуємо повідомлення, якщо були зміни
       // Але не надсилаємо якщо це просто перехід дня (завтра стало сьогодні)
-      const isDayRollover = this.isDayRollover(this.lastOutageSchedule, currentSchedule);
+      // Fix: Pass full objects to isDayRollover
+      const isDayRollover = this.isDayRollover(this.lastOutageSchedule, currentScheduleObj);
 
       if (notifyUsers && scheduleChanged && !isDayRollover) {
         // Форматуємо новий повний графік (згорнутий)
@@ -897,30 +902,22 @@ export class ScheduleCacheService implements OnModuleInit {
   /**
    * Перевіряє чи зміна timestamp пов'язана з переходом на новий день
    */
+  /**
+   * Перевіряє чи зміна timestamp пов'язана з переходом на новий день
+   */
   private isDayRollover(oldSchedule: any, newSchedule: any): boolean {
     if (!oldSchedule || !newSchedule) return false;
 
-    const oldDate = new Date(parseInt(oldSchedule.timestamp) * 1000);
-    const newDate = new Date(parseInt(newSchedule.timestamp) * 1000);
+    // Use Kyiv timezone for robust comparison
+    const oldDate = convertToTimeZone(new Date(parseInt(oldSchedule.timestamp) * 1000), { timeZone: TZ_KYIV });
+    const newDate = convertToTimeZone(new Date(parseInt(newSchedule.timestamp) * 1000), { timeZone: TZ_KYIV });
 
-    // Перевіряємо чи oldDate це вчора, а newDate це сьогодні
-    const yesterdayStart = new Date();
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    yesterdayStart.setHours(0, 0, 0, 0);
+    const oldDayStr = format(oldDate, 'yyyy-MM-dd');
+    const newDayStr = format(newDate, 'yyyy-MM-dd');
 
-    const yesterdayEnd = new Date();
-    yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
-    yesterdayEnd.setHours(23, 59, 59, 999);
-
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const isOldYesterday = oldDate >= yesterdayStart && oldDate <= yesterdayEnd;
-    const isNewToday = newDate >= todayStart && newDate <= todayEnd;
-
-    return isOldYesterday && isNewToday;
+    // If the new schedule is for a DIFFERENT day (and it's later), it's a rollover
+    // We don't care about "yesterday" vs "today" relative to system time anymore,
+    // we only care that the SCHEDULE date has advanced.
+    return newDayStr > oldDayStr;
   }
 }
