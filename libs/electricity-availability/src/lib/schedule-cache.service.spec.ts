@@ -153,4 +153,47 @@ describe('ScheduleCacheService', () => {
         // notification SHOULD be sent
         expect(mockNotificationBotService.sendScheduleUpdateWithImage).toHaveBeenCalledTimes(1);
     });
+    it('should detect day rollover even if state is updated before check (FAILING CASE REPRODUCTION)', async () => {
+        // 1. Setup - Initial fetch (Day 1)
+        const day1Timestamp = 1700000000;
+        const day1Schedule = {
+            timestamp: day1Timestamp.toString(),
+            schedule: { '0': 'yes' },
+            lastUpdated: new Date(day1Timestamp * 1000).toISOString(),
+        };
+
+        mockOutageDataService.fetchKyivSchedule.mockResolvedValue({});
+        mockOutageDataService.parseGroupSchedule.mockReturnValue({
+            schedule: day1Schedule.schedule,
+            timestamp: day1Schedule.timestamp,
+            lastUpdated: day1Schedule.lastUpdated
+        });
+
+        // Initial run
+        await service.fetchAndCacheSchedules(true);
+        mockNotificationBotService.sendScheduleUpdateWithImage.mockClear();
+
+        // 2. Setup - Second fetch (Day 2 - Rollover)
+        const day2Timestamp = day1Timestamp + 86400; // +24 hours
+        const day2Schedule = {
+            timestamp: day2Timestamp.toString(),
+            schedule: { '0': 'yes' }, // Same content, different day
+            lastUpdated: new Date(day2Timestamp * 1000).toISOString(),
+        };
+
+        mockOutageDataService.parseGroupSchedule.mockReturnValue({
+            schedule: day2Schedule.schedule,
+            timestamp: day2Schedule.timestamp,
+            lastUpdated: day2Schedule.lastUpdated
+        });
+
+        // 3. Run
+        await service.fetchAndCacheSchedules(true);
+
+        // 4. Verify
+        // If the bug exists (state updated before check), it will NOT detect rollover,
+        // and thus it WILL send a notification (because timestamps changed, so it thinks it's an update).
+        // WE WANT IT TO BE 0 calls (Rollover detected -> No notification).
+        expect(mockNotificationBotService.sendScheduleUpdateWithImage).not.toHaveBeenCalled();
+    });
 });

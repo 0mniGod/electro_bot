@@ -191,7 +191,9 @@ export class ScheduleCacheService implements OnModuleInit {
       }
 
       // 5. Зберігаємо новий стан
-      this.lastOutageSchedule = currentScheduleObj; // Fix: Save full object
+      // FIX: Capture old schedule for rollover check BEFORE updating state
+      const oldSchedule = this.lastOutageSchedule;
+      this.lastOutageSchedule = currentScheduleObj;
 
       // 5a. Оновлюємо ЛЕГАСІ кеш
       this.updateLegacyCache(currentSchedule, false);
@@ -204,8 +206,7 @@ export class ScheduleCacheService implements OnModuleInit {
 
       // 6. Формуємо повідомлення, якщо були зміни
       // Але не надсилаємо якщо це просто перехід дня (завтра стало сьогодні)
-      // Fix: Pass full objects to isDayRollover
-      const isDayRollover = this.isDayRollover(this.lastOutageSchedule, currentScheduleObj);
+      const isDayRollover = this.isDayRollover(oldSchedule, currentScheduleObj);
 
       if (notifyUsers && scheduleChanged && !isDayRollover) {
         // Форматуємо новий повний графік (згорнутий)

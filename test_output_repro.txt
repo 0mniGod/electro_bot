@@ -1,0 +1,26 @@
+
+> nx run electricity-availability:test
+
+PASS electricity-availability libs/electricity-availability/src/lib/schedule-cache.service.spec.ts (21.31 s)
+  ScheduleCacheService
+    √ should be defined (90 ms)
+    √ should NOT send notification if changes are due to day rollover (39 ms)
+    √ should send notification if changes are NOT rollover (same day update) (13 ms)
+    √ should detect day rollover even if state is updated before check (FAILING CASE REPRODUCTION) (14 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       4 passed, 4 total
+Snapshots:   0 total
+Time:        22.608 s
+Ran all test suites.
+
+ 
+
+ >  NX   Successfully ran target test for project electricity-availability
+
+
+
+ >  NX   Nx Cloud encountered some problems
+
+   This workspace is more than three days old and is not connected. Workspaces must be connected within 3 days of creation. Claim your workspace at https://cloud.nx.app. (code: 401)
+
